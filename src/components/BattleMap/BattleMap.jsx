@@ -192,10 +192,15 @@ const BattleMap = ({
                 Monster
               </span>
             )}
+            {(selectedCharacter.hp !== undefined ? selectedCharacter.hp : selectedCharacter.maxHp) <= 0 && (
+              <span className="ml-2 text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded">
+                💀 DEFEATED
+              </span>
+            )}
           </div>
           <div className="text-xs text-slate-400">
             AC {selectedCharacter.ac || 10} • 
-            HP {selectedCharacter.hp || selectedCharacter.maxHp}/{selectedCharacter.maxHp} • 
+            HP {selectedCharacter.hp !== undefined ? selectedCharacter.hp : selectedCharacter.maxHp}/{selectedCharacter.maxHp} • 
             Position ({selectedCharacter.x}, {selectedCharacter.y})
           </div>
         </div>
