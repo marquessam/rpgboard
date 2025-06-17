@@ -1,7 +1,7 @@
 // src/components/Combat/SpellPanel.jsx
 import React, { useState } from 'react';
 import { Sparkles, Plus, X, Target } from 'lucide-react';
-import { spellLevels, spellSchools } from '../../utils/constants';
+import { spellLevels, spellSchools, calculateDistance, isInRange, getRangeDescription } from '../../utils/constants';
 import { rollDice, rollSavingThrow } from '../../utils/diceRoller';
 import { getStatModifier } from '../../utils/helpers';
 
@@ -109,7 +109,13 @@ const SpellPanel = ({
   const [targetingSpell, setTargetingSpell] = useState(null);
   const [selectedTargets, setSelectedTargets] = useState([]);
 
-  if (!selectedCharacter) {
+  // Check if character is alive
+  const isCharacterAlive = (char) => {
+    const currentHp = char.hp !== undefined ? char.hp : char.maxHp;
+    return currentHp > 0;
+  };
+
+  if (!selectedCharacter || !isCharacterAlive(selectedCharacter)) {
     return (
       <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-4 shadow-2xl">
         <h3 className="text-lg font-bold text-slate-100 mb-4">
@@ -117,7 +123,7 @@ const SpellPanel = ({
           Spells
         </h3>
         <div className="text-slate-400 text-center py-8">
-          Select a spellcaster to manage spells
+          {!selectedCharacter ? 'Select a spellcaster to manage spells' : 'This character is defeated and cannot cast spells'}
         </div>
       </div>
     );
@@ -262,9 +268,33 @@ const SpellPanel = ({
           : [...prev, target]
       );
     } else {
-      // For single-attack spells, only one target
-      setSelectedTargets([target]);
+      // For single-attack spells, check range first
+      const spellRange = targetingSpell.range || '60 feet';
+      if (isInRange(selectedCharacter, target, spellRange)) {
+        setSelectedTargets([target]);
+      } else {
+        const distance = calculateDistance(selectedCharacter, target);
+        alert(`Target is out of range! Distance: ${distance} squares. ${targetingSpell.name} range: ${getRangeDescription(spellRange)}`);
+      }
     }
+  };
+
+  const getValidSpellTargets = (spell) => {
+    if (!spell) return [];
+    
+    const spellRange = spell.range || '60 feet';
+    return characters.filter(char => 
+      char.id !== selectedCharacter.id && 
+      isCharacterAlive(char) &&
+      isInRange(selectedCharacter, char, spellRange)
+    );
+  };
+
+  const getAllPotentialTargets = () => {
+    return characters.filter(char => 
+      char.id !== selectedCharacter.id && 
+      isCharacterAlive(char)
+    );
   };
 
   const addKnownSpell = (spellKey) => {
@@ -283,7 +313,8 @@ const SpellPanel = ({
     return acc;
   }, {});
 
-  const potentialTargets = characters.filter(char => char.id !== selectedCharacter.id);
+  const potentialTargets = getAllPotentialTargets();
+  const validTargets = targetingSpell ? getValidSpellTargets(targetingSpell) : [];
 
   return (
     <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-4 shadow-2xl">
@@ -313,7 +344,8 @@ const SpellPanel = ({
           <span className="font-medium text-white">{selectedCharacter.name}</span>
         </div>
         <div className="text-xs text-slate-400">
-          Spell Attack: +{spellAttackBonus} • Spell DC: {spellcastingDC}
+          Spell Attack: +{spellAttackBonus} • Spell DC: {spellcastingDC} •
+          Position ({selectedCharacter.x}, {selectedCharacter.y})
         </div>
       </div>
 
@@ -325,29 +357,51 @@ const SpellPanel = ({
             <span className="text-sm font-medium">Casting {targetingSpell.name}</span>
           </div>
           
+          <div className="text-xs text-slate-400 mb-3">
+            Range: {getRangeDescription(targetingSpell.range || '60 feet')} • 
+            Valid Targets: {validTargets.length}/{potentialTargets.length}
+          </div>
+          
           <div className="space-y-2 mb-3">
-            {potentialTargets.map(target => (
-              <button
-                key={target.id}
-                onClick={() => handleTargetSelect(target)}
-                className={`w-full p-2 rounded border transition-all duration-200 text-left ${
-                  selectedTargets.find(t => t.id === target.id)
-                    ? 'bg-blue-500/20 border-blue-500/50'
-                    : 'bg-slate-700 border-slate-600 hover:bg-slate-600'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded border"
-                    style={{ 
-                      backgroundColor: target.color,
-                      borderColor: target.borderColor
-                    }}
-                  />
-                  <span className="text-white text-sm">{target.name}</span>
-                </div>
-              </button>
-            ))}
+            {potentialTargets.map(target => {
+              const spellRange = targetingSpell.range || '60 feet';
+              const inRange = isInRange(selectedCharacter, target, spellRange);
+              const distance = calculateDistance(selectedCharacter, target);
+              const isSelected = selectedTargets.find(t => t.id === target.id);
+              
+              return (
+                <button
+                  key={target.id}
+                  onClick={() => handleTargetSelect(target)}
+                  disabled={!inRange}
+                  className={`w-full p-2 rounded border transition-all duration-200 text-left ${
+                    isSelected
+                      ? 'bg-blue-500/20 border-blue-500/50'
+                      : inRange 
+                        ? 'bg-slate-700 border-slate-600 hover:bg-slate-600'
+                        : 'bg-slate-800 border-red-600 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded border"
+                        style={{ 
+                          backgroundColor: target.color,
+                          borderColor: target.borderColor
+                        }}
+                      />
+                      <span className="text-white text-sm">{target.name}</span>
+                    </div>
+                    <div className="text-xs">
+                      <span className={inRange ? 'text-green-400' : 'text-red-400'}>
+                        {distance} sq {inRange ? '✓' : '✗'}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
           
           <div className="flex gap-2">
@@ -405,7 +459,7 @@ const SpellPanel = ({
                             <div className="font-medium text-white text-sm">{spell.name}</div>
                             <div className="text-xs text-slate-400">{spell.description}</div>
                             <div className="text-xs text-slate-500 mt-1">
-                              {spell.castingTime} • {spell.range} • {spell.components.join(', ')}
+                              {spell.castingTime} • Range: {getRangeDescription(spell.range)} • {spell.components?.join(', ')}
                             </div>
                           </div>
                           <div className="flex gap-1">
