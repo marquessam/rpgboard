@@ -31,7 +31,8 @@ const CharacterToken = ({
 
   // Calculate token size based on grid size
   const tokenSize = Math.max(24, Math.min(64, (800 / gridSize) * 0.8)); // Scale between 24px and 64px
-  const isDead = (character.hp || character.maxHp || 20) <= 0;
+  const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
+  const isDead = currentHp <= 0;
   const canInteract = !isDead || (isDead && character.isMonster && !character.looted);
 
   return (
@@ -125,7 +126,7 @@ const CharacterToken = ({
       )}
 
       {/* Low HP Indicator */}
-      {!isDead && (character.hp || character.maxHp) / character.maxHp <= 0.25 && (
+      {!isDead && currentHp / character.maxHp <= 0.25 && (
         <div 
           className="absolute left-1/2 transform -translate-x-1/2 text-red-500"
           style={{
@@ -193,14 +194,14 @@ const CharacterToken = ({
           </div>
           <div className="text-white text-xs mb-1">
             AC: {character.ac || (10 + getStatModifier(character.dex))} • 
-            HP: {character.hp || character.maxHp || 20}/{character.maxHp || 20}
+            HP: {currentHp}/{character.maxHp}
           </div>
           <div className="w-20 h-2 bg-slate-600 rounded overflow-hidden">
             <div 
               className="h-full transition-all duration-300"
               style={{ 
-                width: `${((character.hp || character.maxHp || 20) / (character.maxHp || 20)) * 100}%`,
-                backgroundColor: isDead ? '#ef4444' : getHealthColor(character.hp || character.maxHp || 20, character.maxHp || 20)
+                width: `${(currentHp / character.maxHp) * 100}%`,
+                backgroundColor: isDead ? '#ef4444' : getHealthColor(currentHp, character.maxHp)
               }}
             />
           </div>
