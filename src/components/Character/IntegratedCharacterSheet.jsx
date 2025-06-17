@@ -4,7 +4,7 @@ import {
   Upload, Trash2, Plus, X, Sword, Sparkles, Heart, 
   Shield, Zap, Target, Dice6, User, FileText 
 } from 'lucide-react';
-import { colorOptions, borderColorOptions, commonWeapons } from '../../utils/constants';
+import { colorOptions, borderColorOptions, commonWeapons, calculateDistance, isInRange, getRangeDescription } from '../../utils/constants';
 import { getStatModifier, getHealthColor } from '../../utils/helpers';
 import { rollDice, rollAttack, rollDamage } from '../../utils/diceRoller';
 
@@ -57,6 +57,13 @@ const IntegratedCharacterSheet = ({
 
   const executeAction = (action, targets) => {
     targets.forEach(target => {
+      // Check range before executing
+      if (!isInRange(editingCharacter, target, action.range)) {
+        const distance = calculateDistance(editingCharacter, target);
+        alert(`Target is out of range! Distance: ${distance} squares. ${action.name} range: ${getRangeDescription(action.range)}`);
+        return;
+      }
+
       if (action.attackRoll) {
         const attackRoll = rollAttack(action.attackBonus);
         const hit = attackRoll.total >= (target.ac || 10);
@@ -203,6 +210,7 @@ const IntegratedCharacterSheet = ({
               />
               <h3 className="text-xl font-bold text-slate-100">
                 {editingCharacter.name || 'New Character'}
+                {!isAlive && <span className="ml-2 text-red-400">💀 DEFEATED</span>}
               </h3>
             </div>
             
@@ -226,7 +234,9 @@ const IntegratedCharacterSheet = ({
           <div className="flex gap-2">
             <button
               onClick={() => setShowQuickRoll(!showQuickRoll)}
-              className="bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded text-white text-sm"
+              disabled={!isAlive}
+              className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 px-3 py-1 rounded text-white text-sm"
+              title={!isAlive ? "Character is defeated" : "Quick rolls"}
             >
               <Dice6 size={14} />
             </button>
@@ -466,17 +476,39 @@ const IntegratedCharacterSheet = ({
                     <Target size={16} className="text-blue-400" />
                     <span className="text-blue-300 font-medium">Using {targetingAction.name}</span>
                   </div>
+                  
+                  <div className="text-xs text-slate-400 mb-3">
+                    Range: {getRangeDescription(targetingAction.range)}
+                  </div>
+                  
                   <div className="space-y-2 mb-3">
-                    {potentialTargets.map(target => (
-                      <button
-                        key={target.id}
-                        onClick={() => executeAction(targetingAction, [target])}
-                        className="w-full p-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded text-left"
-                      >
-                        <span className="text-white">{target.name}</span>
-                        <span className="text-slate-400 ml-2">AC {target.ac || 10}</span>
-                      </button>
-                    ))}
+                    {potentialTargets.map(target => {
+                      const inRange = isInRange(editingCharacter, target, targetingAction.range);
+                      const distance = calculateDistance(editingCharacter, target);
+                      
+                      return (
+                        <button
+                          key={target.id}
+                          onClick={() => inRange ? executeAction(targetingAction, [target]) : null}
+                          disabled={!inRange}
+                          className={`w-full p-2 border rounded text-left transition-all duration-200 ${
+                            inRange 
+                              ? 'bg-slate-700 hover:bg-slate-600 border-slate-600' 
+                              : 'bg-slate-800 border-red-600 opacity-50 cursor-not-allowed'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <span className="text-white">{target.name}</span>
+                              <span className="text-slate-400 ml-2">AC {target.ac || 10}</span>
+                            </div>
+                            <span className={`text-xs ${inRange ? 'text-green-400' : 'text-red-400'}`}>
+                              {distance} sq {inRange ? '✓' : '✗'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                   <button
                     onClick={() => setTargetingAction(null)}
@@ -495,14 +527,16 @@ const IntegratedCharacterSheet = ({
                       <div className="flex-1">
                         <div className="font-medium text-white">{action.name}</div>
                         <div className="text-sm text-slate-300">
-                          +{action.attackBonus} to hit • {action.damageRoll} {action.damageType}
+                          +{action.attackBonus} to hit • {action.damageRoll} {action.damageType} • 
+                          Range: {getRangeDescription(action.range)}
                         </div>
                       </div>
                       <div className="flex gap-2">
                         <button
                           onClick={() => setTargetingAction(action)}
-                          disabled={potentialTargets.length === 0}
+                          disabled={potentialTargets.length === 0 || !isAlive}
                           className="bg-red-500 hover:bg-red-600 disabled:bg-slate-600 px-3 py-1 rounded text-white text-sm"
+                          title={!isAlive ? "Character is defeated" : ""}
                         >
                           Use
                         </button>
@@ -562,39 +596,42 @@ const IntegratedCharacterSheet = ({
               )}
 
               {/* Spell List */}
-              <div className="space-y-2">
-                {(editingCharacter.spells || []).map((spell, index) => (
-                  <div key={index} className="p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="font-medium text-white">{spell.name}</div>
-                        <div className="text-sm text-slate-300">{spell.description}</div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          Level {spell.level} • {spell.school} • {spell.castingTime}
+              {isAlive && (
+                <div className="space-y-2">
+                  {(editingCharacter.spells || []).map((spell, index) => (
+                    <div key={index} className="p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="font-medium text-white">{spell.name}</div>
+                          <div className="text-sm text-slate-300">{spell.description}</div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            Level {spell.level} • {spell.school} • {spell.castingTime}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setTargetingSpell(spell)}
+                            disabled={potentialTargets.length === 0 || !isAlive}
+                            className="bg-purple-500 hover:bg-purple-600 disabled:bg-slate-600 px-3 py-1 rounded text-white text-sm"
+                            title={!isAlive ? "Character is defeated" : ""}
+                          >
+                            Cast
+                          </button>
+                          <button
+                            onClick={() => setEditingCharacter(prev => ({
+                              ...prev,
+                              spells: prev.spells.filter((_, i) => i !== index)
+                            }))}
+                            className="text-red-400 hover:text-red-300"
+                          >
+                            <X size={16} />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setTargetingSpell(spell)}
-                          disabled={potentialTargets.length === 0}
-                          className="bg-purple-500 hover:bg-purple-600 disabled:bg-slate-600 px-3 py-1 rounded text-white text-sm"
-                        >
-                          Cast
-                        </button>
-                        <button
-                          onClick={() => setEditingCharacter(prev => ({
-                            ...prev,
-                            spells: prev.spells.filter((_, i) => i !== index)
-                          }))}
-                          className="text-red-400 hover:text-red-300"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {editingCharacter.spells?.length === 0 && (
                 <div className="text-center text-slate-400 py-8">
