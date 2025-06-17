@@ -1,4 +1,4 @@
-// src/components/BattleMap/BattleMap.jsx
+// src/components/BattleMap/BattleMap.jsx - Updated with character selection
 import React, { useState } from 'react';
 import { Sword, Plus, RotateCcw, Upload } from 'lucide-react';
 import CharacterToken from './CharacterToken';
@@ -14,6 +14,8 @@ const BattleMap = ({
   characters,
   onAddCharacter,
   onEditCharacter,
+  onSelectCharacter,
+  selectedCharacter,
   onMakeCharacterSpeak,
   onMoveCharacter,
   terrain,
@@ -42,6 +44,15 @@ const BattleMap = ({
         ...prev,
         [cellKey]: selectedTerrain
       }));
+    } else {
+      // Check if clicking on a character
+      const clickedCharacter = characters.find(char => char.x === x && char.y === y);
+      if (clickedCharacter) {
+        onSelectCharacter(clickedCharacter);
+      } else {
+        // Clear selection if clicking empty space
+        onSelectCharacter(null);
+      }
     }
   };
 
@@ -49,6 +60,8 @@ const BattleMap = ({
     if (paintMode) return;
     
     e.preventDefault();
+    e.stopPropagation();
+    
     const rect = e.currentTarget.closest('.battle-grid').getBoundingClientRect();
     const cellSize = Math.min(rect.width, rect.height) / gridSize;
 
@@ -70,6 +83,11 @@ const BattleMap = ({
     setDraggedCharacter(character.id);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleCharacterClick = (character, e) => {
+    e.stopPropagation();
+    onSelectCharacter(character);
   };
 
   const clearTerrain = () => {
@@ -142,9 +160,11 @@ const BattleMap = ({
               gridSize={gridSize}
               isDragged={draggedCharacter === character.id}
               isHovered={hoveredCharacter?.id === character.id}
+              isSelected={selectedCharacter?.id === character.id}
               showNames={showNames}
               paintMode={paintMode}
               onMouseDown={(e) => handleCharacterDrag(character, e)}
+              onClick={(e) => handleCharacterClick(character, e)}
               onMouseEnter={() => setHoveredCharacter(character)}
               onMouseLeave={() => setHoveredCharacter(null)}
             />
@@ -161,6 +181,25 @@ const BattleMap = ({
           onMakeCharacterSpeak={onMakeCharacterSpeak}
         />
       </div>
+
+      {/* Selection Info */}
+      {selectedCharacter && (
+        <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+          <div className="text-blue-300 text-sm font-medium mb-1">
+            Selected: {selectedCharacter.name}
+            {selectedCharacter.isMonster && (
+              <span className="ml-2 text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded">
+                Monster
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-slate-400">
+            AC {selectedCharacter.ac || 10} • 
+            HP {selectedCharacter.hp || selectedCharacter.maxHp}/{selectedCharacter.maxHp} • 
+            Position ({selectedCharacter.x}, {selectedCharacter.y})
+          </div>
+        </div>
+      )}
     </div>
   );
 };
