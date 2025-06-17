@@ -216,27 +216,23 @@ const App = () => {
   };
 
   const handleCharacterSelect = (character) => {
-    try {
-      if (!character) {
-        console.error('Character is null or undefined');
-        return;
-      }
-
-      const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
-      const isDead = currentHp <= 0;
-      
-      if (isDead && character.isMonster) {
-        // Show loot modal for dead monsters
-        setLootingCharacter(character);
-        setShowLootModal(true);
-      } else if (!isDead) {
-        // Regular selection for living characters
-        setSelectedCharacterForActions(character);
-      }
-      // Dead player characters don't do anything special for now
-    } catch (error) {
-      console.error('Error selecting character:', error);
+    if (!character) {
+      console.error('Character is null or undefined');
+      return;
     }
+
+    const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
+    const isDead = currentHp <= 0;
+    
+    if (isDead && character.isMonster) {
+      // Show loot modal for dead monsters
+      setLootingCharacter(character);
+      setShowLootModal(true);
+    } else if (!isDead) {
+      // Regular selection for living characters
+      setSelectedCharacterForActions(character);
+    }
+    // Dead player characters don't do anything special for now
   };
 
   const handleTakeLoot = (lootItems) => {
@@ -314,15 +310,10 @@ const App = () => {
           >
             Reload Page
           </button>
-        </div>
       </div>
-    );
-  } catch (error) {
-    console.error('App render error:', error);
-    setHasError(true);
-    setError(error);
-    return null;
-  }
+    </div>
+  );
+};
   }
 
   try {
@@ -417,18 +408,13 @@ const App = () => {
               characters={characters}
               onAddCharacter={handleAddCharacter}
               onEditCharacter={(char) => {
-                try {
-                  console.log('Opening character sheet for:', char);
-                  if (!char) {
-                    console.error('Character is null or undefined');
-                    return;
-                  }
-                  setEditingCharacter(char);
-                  setShowCharacterModal(true);
-                } catch (error) {
-                  console.error('Error opening character sheet:', error);
-                  alert('Error opening character sheet. Please try refreshing the page.');
+                console.log('Opening character sheet for:', char);
+                if (!char) {
+                  console.error('Character is null or undefined');
+                  return;
                 }
+                setEditingCharacter(char);
+                setShowCharacterModal(true);
               }}
               onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
