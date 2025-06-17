@@ -202,18 +202,33 @@ export const defaultPlayerActions = [
   }
 ];
 
+export const creatureTypes = [
+  'aberration', 'beast', 'celestial', 'construct', 'dragon', 'elemental',
+  'fey', 'fiend', 'giant', 'humanoid', 'monstrosity', 'ooze',
+  'plant', 'undead'
+];
+
+export const alignments = [
+  'Lawful Good', 'Neutral Good', 'Chaotic Good',
+  'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
+  'Lawful Evil', 'Neutral Evil', 'Chaotic Evil'
+];
+
 // Range and distance utilities
 export const calculateDistance = (char1, char2) => {
-  const dx = Math.abs(char1.x - char2.x);
-  const dy = Math.abs(char1.y - char2.y);
+  if (!char1 || !char2) return 999; // Invalid characters
+  const dx = Math.abs((char1.x || 0) - (char2.x || 0));
+  const dy = Math.abs((char1.y || 0) - (char2.y || 0));
   // Use Chebyshev distance (max of dx, dy) for D&D grid movement
   return Math.max(dx, dy);
 };
 
 export const isInRange = (attacker, target, actionRange) => {
+  if (!attacker || !target || !actionRange) return true; // Default to allow if data missing
+  
   const distance = calculateDistance(attacker, target);
   
-  if (actionRange === 'melee' || actionRange.includes('melee')) {
+  if (actionRange === 'melee' || actionRange.toLowerCase().includes('melee')) {
     return distance <= 1; // Adjacent squares
   }
   
@@ -231,7 +246,9 @@ export const isInRange = (attacker, target, actionRange) => {
 };
 
 export const getRangeDescription = (actionRange) => {
-  if (actionRange === 'melee' || actionRange.includes('melee')) {
+  if (!actionRange) return 'Unknown range';
+  
+  if (actionRange === 'melee' || actionRange.toLowerCase().includes('melee')) {
     return 'Adjacent only';
   }
   
@@ -242,7 +259,7 @@ export const getRangeDescription = (actionRange) => {
     return `${rangeInSquares} squares (${range} ft)`;
   }
   
-  return actionRange;
+  return actionRange || 'Unknown range';
 };
 export const commonWeapons = {
   dagger: {
