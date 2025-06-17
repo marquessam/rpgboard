@@ -36,7 +36,7 @@ const App = () => {
   const [sceneDescription, setSceneDescription] = useState('');
 
   // Custom hooks
-  const { characters, addCharacter, updateCharacter, deleteCharacter } = useCharacters();
+  const { characters, addCharacter, updateCharacter, deleteCharacter, moveCharacter } = useCharacters();
   const { 
     dialogueQueue, 
     showDialoguePopup, 
@@ -52,6 +52,18 @@ const App = () => {
   const [playerMessage, setPlayerMessage] = useState('');
   const [playerName, setPlayerName] = useState('');
 
+  // Enhanced makeCharacterSpeak that also adds to chat
+  const handleMakeCharacterSpeak = (character, text) => {
+    makeCharacterSpeak(character, text);
+    setChatMessages(prev => [...prev, {
+      type: 'character',
+      name: character.name,
+      text: text,
+      character: character,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  };
+
   const showScene = (image, description) => {
     setSceneImage(image);
     setSceneDescription(description);
@@ -61,6 +73,12 @@ const App = () => {
   const openUploadModal = (type) => {
     setUploadType(type);
     setShowUploadModal(true);
+  };
+
+  const handleAddCharacter = () => {
+    const newChar = addCharacter();
+    setEditingCharacter(newChar);
+    setShowCharacterModal(true);
   };
 
   return (
@@ -84,12 +102,13 @@ const App = () => {
               gridSize={gridSize}
               onGridSizeChange={setGridSize}
               characters={characters}
-              onAddCharacter={addCharacter}
+              onAddCharacter={handleAddCharacter}
               onEditCharacter={(char) => {
                 setEditingCharacter(char);
                 setShowCharacterModal(true);
               }}
-              onMakeCharacterSpeak={makeCharacterSpeak}
+              onMakeCharacterSpeak={handleMakeCharacterSpeak}
+              onMoveCharacter={moveCharacter}
               terrain={terrain}
               onTerrainChange={setTerrain}
               customTerrainSprites={customTerrainSprites}
@@ -112,7 +131,7 @@ const App = () => {
               playerName={playerName}
               onPlayerNameChange={setPlayerName}
               characters={characters}
-              onMakeCharacterSpeak={makeCharacterSpeak}
+              onMakeCharacterSpeak={handleMakeCharacterSpeak}
             />
           </div>
         </div>
