@@ -88,6 +88,23 @@ const CombatLog = ({ combatMessages, onClearLog }) => {
           </div>
         );
         
+        case 'loot':
+        return (
+          <div className="p-3 rounded-lg border bg-yellow-500/10 border-yellow-500/30">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-medium text-white">
+                💰 {message.text}
+              </span>
+              <span className="text-xs text-slate-400">{message.timestamp}</span>
+            </div>
+            {message.items && (
+              <div className="text-sm text-slate-300 ml-6">
+                Items: {message.items.join(', ')}
+              </div>
+            )}
+          </div>
+        );
+        
       default:
         return (
           <div className="p-3 rounded-lg border bg-slate-500/10 border-slate-500/30">
