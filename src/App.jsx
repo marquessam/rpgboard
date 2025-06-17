@@ -1,9 +1,9 @@
-// src/App.jsx - Final version with complete D&D 5e integration
+// src/App.jsx - Fixed version with proper character management
 import React, { useState } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
 import ChatPanel from './components/Chat/ChatPanel';
-import EnhancedCharacterModal from './components/Character/EnhancedCharacterModal';
+import IntegratedCharacterSheet from './components/Character/IntegratedCharacterSheet';
 import DialoguePopup from './components/Dialogue/DialoguePopup';
 import SceneDisplay from './components/Scene/SceneDisplay';
 import SceneModal from './components/Scene/SceneModal';
@@ -17,7 +17,6 @@ import SpellPanel from './components/Combat/SpellPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
-import { getStatModifier } from './utils/helpers';
 
 const App = () => {
   // Global state
@@ -27,7 +26,7 @@ const App = () => {
   const [uploadType, setUploadType] = useState('sprite');
   const [editingCharacter, setEditingCharacter] = useState(null);
   const [selectedCharacterForActions, setSelectedCharacterForActions] = useState(null);
-  const [activeTab, setActiveTab] = useState('actions'); // actions, conditions, spells, initiative
+  const [activeTab, setActiveTab] = useState('actions');
 
   // Map state
   const [gridSize, setGridSize] = useLocalStorage('gridSize', 20);
@@ -51,6 +50,7 @@ const App = () => {
   const { 
     characters, 
     addCharacter, 
+    addMonster,
     updateCharacter, 
     deleteCharacter, 
     moveCharacter,
@@ -99,12 +99,16 @@ const App = () => {
   };
 
   const handleAddCharacter = () => {
+    console.log('handleAddCharacter called');
     const newChar = addCharacter();
+    console.log('New character created:', newChar);
     setEditingCharacter(newChar);
     setShowCharacterModal(true);
   };
 
   const handleAddMonster = (monster) => {
+    console.log('handleAddMonster called with:', monster);
+    
     // Find a suitable position on the map
     let x = Math.floor(Math.random() * (gridSize - 5)) + 2;
     let y = Math.floor(Math.random() * (gridSize - 5)) + 2;
@@ -122,7 +126,10 @@ const App = () => {
     }
     
     const monsterWithPosition = { ...monster, x, y };
-    updateCharacter(monsterWithPosition);
+    console.log('Adding monster with position:', monsterWithPosition);
+    
+    // Use addMonster instead of updateCharacter
+    const addedMonster = addMonster(monsterWithPosition);
     
     // Add combat log message
     setCombatMessages(prev => [...prev, {
@@ -130,9 +137,13 @@ const App = () => {
       text: `${monster.name} appears on the battlefield!`,
       timestamp: new Date().toLocaleTimeString()
     }]);
+
+    console.log('Monster added successfully:', addedMonster);
   };
 
   const handleAttack = (combatResult, targetId, damage) => {
+    console.log('handleAttack called:', combatResult, targetId, damage);
+    
     // Add attack to combat log
     setCombatMessages(prev => [...prev, {
       ...combatResult,
@@ -333,6 +344,7 @@ const App = () => {
               characters={characters}
               onAddCharacter={handleAddCharacter}
               onEditCharacter={(char) => {
+                console.log('Opening character sheet for:', char);
                 setEditingCharacter(char);
                 setShowCharacterModal(true);
               }}
@@ -387,15 +399,29 @@ const App = () => {
         )}
 
         {showCharacterModal && editingCharacter && (
-          <EnhancedCharacterModal
+          <IntegratedCharacterSheet
             character={editingCharacter}
-            onSave={updateCharacter}
-            onDelete={deleteCharacter}
+            characters={characters}
+            onSave={(savedCharacter) => {
+              console.log('Saving character from modal:', savedCharacter);
+              updateCharacter(savedCharacter);
+              setShowCharacterModal(false);
+              setEditingCharacter(null);
+            }}
+            onDelete={(characterId) => {
+              deleteCharacter(characterId);
+              setShowCharacterModal(false);
+              setEditingCharacter(null);
+            }}
             onClose={() => {
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
             onUpload={openUploadModal}
+            onAttack={handleAttack}
+            onCastSpell={handleCastSpell}
+            onAddCondition={addCondition}
+            onRemoveCondition={removeCondition}
           />
         )}
 
