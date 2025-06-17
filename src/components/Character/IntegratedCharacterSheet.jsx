@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { 
   Upload, Trash2, Plus, X, Sword, Sparkles, Heart, 
-  Shield, Zap, Target, Dice6, User, Scroll 
+  Shield, Zap, Target, Dice6, User, FileText 
 } from 'lucide-react';
 import { colorOptions, borderColorOptions, commonWeapons } from '../../utils/constants';
 import { getStatModifier, getHealthColor } from '../../utils/helpers';
@@ -184,7 +184,7 @@ const IntegratedCharacterSheet = ({
     { id: 'actions', name: 'Actions', icon: <Sword size={16} /> },
     { id: 'spells', name: 'Spells', icon: <Sparkles size={16} /> },
     { id: 'conditions', name: 'Status', icon: <Heart size={16} /> },
-    { id: 'inventory', name: 'Items', icon: <Scroll size={16} /> }
+    { id: 'inventory', name: 'Items', icon: <FileText size={16} /> }
   ];
 
   return (
