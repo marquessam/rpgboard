@@ -1,4 +1,4 @@
-// src/App.jsx - Fixed version with proper character management
+// src/App.jsx - Clean rewrite with no syntax errors
 import React, { useState } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -287,36 +287,7 @@ const App = () => {
       { id: 'initiative', name: 'Initiative', icon: '🎲' }
     ];
 
-    // Error boundary-like error handling
-  const [hasError, setHasError] = useState(false);
-  const [error, setError] = useState(null);
-
-  if (hasError) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md text-center">
-          <h2 className="text-xl font-bold text-red-400 mb-4">🚨 Something went wrong</h2>
-          <p className="text-slate-300 mb-4">The application encountered an error:</p>
-          <pre className="text-xs text-red-300 bg-slate-900 p-2 rounded mb-4 max-h-32 overflow-auto">
-            {error?.toString()}
-          </pre>
-          <button
-            onClick={() => {
-              setHasError(false);
-              setError(null);
-              window.location.reload();
-            }}
-            className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded text-white"
-          >
-            Reload Page
-          </button>
-      </div>
-    </div>
-  );
-};
-  }
-
-  try {
       <div className="space-y-4">
         {/* Tab Navigation */}
         <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-2">
