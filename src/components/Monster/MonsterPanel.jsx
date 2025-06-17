@@ -9,9 +9,13 @@ const MonsterPanel = ({ onAddMonster }) => {
   const [expandedMonster, setExpandedMonster] = useState(null);
 
   const handleAddMonster = (monsterKey) => {
+    console.log('MonsterPanel: Adding monster:', monsterKey);
     const monsterInstance = createMonsterInstance(monsterKey);
+    console.log('MonsterPanel: Created monster instance:', monsterInstance);
     if (monsterInstance) {
       onAddMonster(monsterInstance);
+    } else {
+      console.error('Failed to create monster instance for:', monsterKey);
     }
   };
 
