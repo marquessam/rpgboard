@@ -232,14 +232,24 @@ export const monsterCategories = {
 
 export const createMonsterInstance = (monsterKey) => {
   const template = monsters[monsterKey];
-  if (!template) return null;
+  if (!template) {
+    console.error('Monster template not found for key:', monsterKey);
+    return null;
+  }
   
-  return {
+  const monster = {
     ...template,
     id: `${monsterKey}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     x: 0,
     y: 0,
     isMonster: true,
-    quickMessage: `*${template.name} growls menacingly*`
+    quickMessage: `*${template.name} growls menacingly*`,
+    // Ensure all required D&D 5e properties are present
+    hp: template.hp || template.maxHp,
+    conditions: [],
+    spells: []
   };
+  
+  console.log('Created monster instance:', monster);
+  return monster;
 };
