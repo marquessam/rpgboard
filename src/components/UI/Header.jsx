@@ -95,6 +95,7 @@ const BattleMap = ({
   onAddCharacter,
   onEditCharacter,
   onMakeCharacterSpeak,
+  onMoveCharacter,
   terrain,
   onTerrainChange,
   customTerrainSprites,
@@ -136,9 +137,7 @@ const BattleMap = ({
       const y = Math.floor((moveEvent.clientY - rect.top) / cellSize);
       
       if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
-        // Update character position through parent
-        character.x = x;
-        character.y = y;
+        onMoveCharacter(character.id, x, y);
       }
     };
 
