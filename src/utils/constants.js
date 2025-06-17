@@ -202,7 +202,48 @@ export const defaultPlayerActions = [
   }
 ];
 
-// Common D&D weapons for quick reference
+// Range and distance utilities
+export const calculateDistance = (char1, char2) => {
+  const dx = Math.abs(char1.x - char2.x);
+  const dy = Math.abs(char1.y - char2.y);
+  // Use Chebyshev distance (max of dx, dy) for D&D grid movement
+  return Math.max(dx, dy);
+};
+
+export const isInRange = (attacker, target, actionRange) => {
+  const distance = calculateDistance(attacker, target);
+  
+  if (actionRange === 'melee' || actionRange.includes('melee')) {
+    return distance <= 1; // Adjacent squares
+  }
+  
+  // For ranged attacks, extract the range number
+  const rangeMatch = actionRange.match(/(\d+)/);
+  if (rangeMatch) {
+    const range = parseInt(rangeMatch[1]);
+    // Convert feet to grid squares (assuming 5 feet per square)
+    const rangeInSquares = Math.ceil(range / 5);
+    return distance <= rangeInSquares;
+  }
+  
+  // Default to allowing the action if we can't parse range
+  return true;
+};
+
+export const getRangeDescription = (actionRange) => {
+  if (actionRange === 'melee' || actionRange.includes('melee')) {
+    return 'Adjacent only';
+  }
+  
+  const rangeMatch = actionRange.match(/(\d+)/);
+  if (rangeMatch) {
+    const range = parseInt(rangeMatch[1]);
+    const rangeInSquares = Math.ceil(range / 5);
+    return `${rangeInSquares} squares (${range} ft)`;
+  }
+  
+  return actionRange;
+};
 export const commonWeapons = {
   dagger: {
     name: 'Dagger',
