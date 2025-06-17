@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
 import ChatPanel from './components/Chat/ChatPanel';
-import IntegratedCharacterSheet from './components/Character/IntegratedCharacterSheet';
+import SimpleCharacterModal from './components/Character/SimpleCharacterModal';
 import DialoguePopup from './components/Dialogue/DialoguePopup';
 import SceneDisplay from './components/Scene/SceneDisplay';
 import SceneModal from './components/Scene/SceneModal';
@@ -216,17 +216,27 @@ const App = () => {
   };
 
   const handleCharacterSelect = (character) => {
-    const isDead = (character.hp || character.maxHp) <= 0;
-    
-    if (isDead && character.isMonster) {
-      // Show loot modal for dead monsters
-      setLootingCharacter(character);
-      setShowLootModal(true);
-    } else if (!isDead) {
-      // Regular selection for living characters
-      setSelectedCharacterForActions(character);
+    try {
+      if (!character) {
+        console.error('Character is null or undefined');
+        return;
+      }
+
+      const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
+      const isDead = currentHp <= 0;
+      
+      if (isDead && character.isMonster) {
+        // Show loot modal for dead monsters
+        setLootingCharacter(character);
+        setShowLootModal(true);
+      } else if (!isDead) {
+        // Regular selection for living characters
+        setSelectedCharacterForActions(character);
+      }
+      // Dead player characters don't do anything special for now
+    } catch (error) {
+      console.error('Error selecting character:', error);
     }
-    // Dead player characters don't do anything special for now
   };
 
   const handleTakeLoot = (lootItems) => {
@@ -281,7 +291,41 @@ const App = () => {
       { id: 'initiative', name: 'Initiative', icon: '🎲' }
     ];
 
+    // Error boundary-like error handling
+  const [hasError, setHasError] = useState(false);
+  const [error, setError] = useState(null);
+
+  if (hasError) {
     return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md text-center">
+          <h2 className="text-xl font-bold text-red-400 mb-4">🚨 Something went wrong</h2>
+          <p className="text-slate-300 mb-4">The application encountered an error:</p>
+          <pre className="text-xs text-red-300 bg-slate-900 p-2 rounded mb-4 max-h-32 overflow-auto">
+            {error?.toString()}
+          </pre>
+          <button
+            onClick={() => {
+              setHasError(false);
+              setError(null);
+              window.location.reload();
+            }}
+            className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded text-white"
+          >
+            Reload Page
+          </button>
+        </div>
+      </div>
+    );
+  } catch (error) {
+    console.error('App render error:', error);
+    setHasError(true);
+    setError(error);
+    return null;
+  }
+  }
+
+  try {
       <div className="space-y-4">
         {/* Tab Navigation */}
         <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-2">
@@ -373,9 +417,18 @@ const App = () => {
               characters={characters}
               onAddCharacter={handleAddCharacter}
               onEditCharacter={(char) => {
-                console.log('Opening character sheet for:', char);
-                setEditingCharacter(char);
-                setShowCharacterModal(true);
+                try {
+                  console.log('Opening character sheet for:', char);
+                  if (!char) {
+                    console.error('Character is null or undefined');
+                    return;
+                  }
+                  setEditingCharacter(char);
+                  setShowCharacterModal(true);
+                } catch (error) {
+                  console.error('Error opening character sheet:', error);
+                  alert('Error opening character sheet. Please try refreshing the page.');
+                }
               }}
               onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
@@ -428,7 +481,7 @@ const App = () => {
         )}
 
         {showCharacterModal && editingCharacter && (
-          <IntegratedCharacterSheet
+          <SimpleCharacterModal
             character={editingCharacter}
             characters={characters}
             onSave={(savedCharacter) => {
@@ -449,8 +502,6 @@ const App = () => {
             onUpload={openUploadModal}
             onAttack={handleAttack}
             onCastSpell={handleCastSpell}
-            onAddCondition={addCondition}
-            onRemoveCondition={removeCondition}
           />
         )}
 
