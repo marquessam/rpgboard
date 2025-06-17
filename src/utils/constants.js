@@ -126,12 +126,6 @@ export const spellLevels = [
   { level: 9, name: '9th Level' }
 ];
 
-export const creatureTypes = [
-  'aberration', 'beast', 'celestial', 'construct', 'dragon', 'elemental',
-  'fey', 'fiend', 'giant', 'humanoid', 'monstrosity', 'ooze',
-  'plant', 'undead'
-];
-
 export const alignments = [
   'Lawful Good', 'Neutral Good', 'Chaotic Good',
   'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
