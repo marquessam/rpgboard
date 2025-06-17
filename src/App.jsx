@@ -14,6 +14,7 @@ import CombatLog from './components/Combat/CombatLog';
 import InitiativeTracker from './components/Combat/InitiativeTracker';
 import ConditionsPanel from './components/Combat/ConditionsPanel';
 import SpellPanel from './components/Combat/SpellPanel';
+import LootModal from './components/Combat/LootModal';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
@@ -23,6 +24,8 @@ const App = () => {
   const [showCharacterModal, setShowCharacterModal] = useState(false);
   const [showSceneModal, setShowSceneModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showLootModal, setShowLootModal] = useState(false);
+  const [lootingCharacter, setLootingCharacter] = useState(null);
   const [uploadType, setUploadType] = useState('sprite');
   const [editingCharacter, setEditingCharacter] = useState(null);
   const [selectedCharacterForActions, setSelectedCharacterForActions] = useState(null);
@@ -213,7 +216,33 @@ const App = () => {
   };
 
   const handleCharacterSelect = (character) => {
-    setSelectedCharacterForActions(character);
+    const isDead = (character.hp || character.maxHp) <= 0;
+    
+    if (isDead && character.isMonster) {
+      // Show loot modal for dead monsters
+      setLootingCharacter(character);
+      setShowLootModal(true);
+    } else if (!isDead) {
+      // Regular selection for living characters
+      setSelectedCharacterForActions(character);
+    }
+    // Dead player characters don't do anything special for now
+  };
+
+  const handleTakeLoot = (lootItems) => {
+    // Add loot to combat log
+    setCombatMessages(prev => [...prev, {
+      type: 'loot',
+      text: `Looted ${lootItems.length} items from ${lootingCharacter.name}`,
+      items: lootItems.map(item => `${item.name} x${item.actualQuantity}`),
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+
+    // Mark the character as looted (could add a 'looted' property)
+    updateCharacter({
+      ...lootingCharacter,
+      looted: true
+    });
   };
 
   const clearCombatLog = () => {
@@ -446,6 +475,17 @@ const App = () => {
             image={sceneImage}
             description={sceneDescription}
             onClose={() => setShowSceneDisplay(false)}
+          />
+        )}
+
+        {showLootModal && lootingCharacter && (
+          <LootModal
+            deadCharacter={lootingCharacter}
+            onClose={() => {
+              setShowLootModal(false);
+              setLootingCharacter(null);
+            }}
+            onTakeLoot={handleTakeLoot}
           />
         )}
 
