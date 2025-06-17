@@ -523,7 +523,274 @@ const IntegratedCharacterSheet = ({
             </div>
           )}
 
-          {/* Add other tabs here... */}
+          {/* Spells Tab */}
+          {activeTab === 'spells' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-lg font-medium text-white">Spellcasting</h4>
+                <div className="text-sm text-slate-300">
+                  Spell Attack: +{spellAttackBonus} • Spell DC: {spellcastingDC}
+                </div>
+              </div>
+
+              {/* Targeting Interface for Spells */}
+              {targetingSpell && (
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={16} className="text-purple-400" />
+                    <span className="text-purple-300 font-medium">Casting {targetingSpell.name}</span>
+                  </div>
+                  <div className="space-y-2 mb-3">
+                    {potentialTargets.map(target => (
+                      <button
+                        key={target.id}
+                        onClick={() => executeSpell(targetingSpell, [target])}
+                        className="w-full p-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded text-left"
+                      >
+                        <span className="text-white">{target.name}</span>
+                        <span className="text-slate-400 ml-2">AC {target.ac || 10}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setTargetingSpell(null)}
+                    className="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded text-white text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {/* Spell List */}
+              <div className="space-y-2">
+                {(editingCharacter.spells || []).map((spell, index) => (
+                  <div key={index} className="p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="font-medium text-white">{spell.name}</div>
+                        <div className="text-sm text-slate-300">{spell.description}</div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          Level {spell.level} • {spell.school} • {spell.castingTime}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setTargetingSpell(spell)}
+                          disabled={potentialTargets.length === 0}
+                          className="bg-purple-500 hover:bg-purple-600 disabled:bg-slate-600 px-3 py-1 rounded text-white text-sm"
+                        >
+                          Cast
+                        </button>
+                        <button
+                          onClick={() => setEditingCharacter(prev => ({
+                            ...prev,
+                            spells: prev.spells.filter((_, i) => i !== index)
+                          }))}
+                          className="text-red-400 hover:text-red-300"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {editingCharacter.spells?.length === 0 && (
+                <div className="text-center text-slate-400 py-8">
+                  No spells learned yet
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Conditions Tab */}
+          {activeTab === 'conditions' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-lg font-medium text-white">Status Effects</h4>
+                <div className="text-sm text-slate-300">
+                  {(editingCharacter.conditions || []).length} active
+                </div>
+              </div>
+
+              {/* Active Conditions */}
+              <div className="space-y-2">
+                {(editingCharacter.conditions || []).map((condition, index) => (
+                  <div key={index} className="p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{condition.icon}</span>
+                        <div>
+                          <div className="font-medium text-white">{condition.name}</div>
+                          <div className="text-sm text-slate-300">{condition.description}</div>
+                          <div className="text-xs text-slate-500">Applied: {condition.appliedAt}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setEditingCharacter(prev => ({
+                          ...prev,
+                          conditions: prev.conditions.filter((_, i) => i !== index)
+                        }))}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {(editingCharacter.conditions || []).length === 0 && (
+                <div className="text-center text-slate-400 py-8">
+                  No active conditions
+                </div>
+              )}
+
+              {/* Quick Health Actions */}
+              <div className="border-t border-slate-600 pt-4">
+                <h5 className="text-md font-medium text-white mb-3">Quick Actions</h5>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => {
+                      const amount = parseInt(prompt('Healing amount:') || '0');
+                      if (amount > 0) {
+                        const newHp = Math.min((editingCharacter.hp || editingCharacter.maxHp) + amount, editingCharacter.maxHp);
+                        setEditingCharacter(prev => ({ ...prev, hp: newHp }));
+                      }
+                    }}
+                    className="bg-green-500 hover:bg-green-600 px-3 py-2 rounded text-white font-medium"
+                  >
+                    <Heart size={16} className="inline mr-1" />
+                    Heal
+                  </button>
+                  <button
+                    onClick={() => {
+                      const amount = parseInt(prompt('Damage amount:') || '0');
+                      if (amount > 0) {
+                        const newHp = Math.max((editingCharacter.hp || editingCharacter.maxHp) - amount, 0);
+                        setEditingCharacter(prev => ({ ...prev, hp: newHp }));
+                      }
+                    }}
+                    className="bg-red-500 hover:bg-red-600 px-3 py-2 rounded text-white font-medium"
+                  >
+                    <Zap size={16} className="inline mr-1" />
+                    Damage
+                  </button>
+                  <button
+                    onClick={() => setEditingCharacter(prev => ({ ...prev, hp: prev.maxHp }))}
+                    className="bg-blue-500 hover:bg-blue-600 px-3 py-2 rounded text-white font-medium"
+                  >
+                    Full Heal
+                  </button>
+                  <button
+                    onClick={() => performQuickRoll('death_save')}
+                    className="bg-slate-600 hover:bg-slate-500 px-3 py-2 rounded text-white font-medium"
+                  >
+                    Death Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Inventory Tab */}
+          {activeTab === 'inventory' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-lg font-medium text-white">Equipment & Items</h4>
+                <button
+                  onClick={() => {
+                    const itemName = prompt('Item name:');
+                    if (itemName) {
+                      setEditingCharacter(prev => ({
+                        ...prev,
+                        inventory: [...(prev.inventory || []), {
+                          name: itemName,
+                          quantity: 1,
+                          description: ''
+                        }]
+                      }));
+                    }
+                  }}
+                  className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-white text-sm"
+                >
+                  <Plus size={14} className="inline mr-1" />
+                  Add Item
+                </button>
+              </div>
+
+              {/* Character Background */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-2">Race</label>
+                  <input
+                    type="text"
+                    value={editingCharacter.race || ''}
+                    onChange={(e) => setEditingCharacter(prev => ({ ...prev, race: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+                    placeholder="e.g., Human, Elf, Dwarf"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-2">Background</label>
+                  <input
+                    type="text"
+                    value={editingCharacter.background || ''}
+                    onChange={(e) => setEditingCharacter(prev => ({ ...prev, background: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+                    placeholder="e.g., Soldier, Criminal, Noble"
+                  />
+                </div>
+              </div>
+
+              {/* Notes/Description */}
+              <div>
+                <label className="block text-slate-300 font-medium mb-2">Character Notes</label>
+                <textarea
+                  value={editingCharacter.notes || ''}
+                  onChange={(e) => setEditingCharacter(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Character backstory, personality traits, important notes..."
+                  className="w-full h-24 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white resize-none"
+                />
+              </div>
+
+              {/* Inventory Items */}
+              <div>
+                <h5 className="text-md font-medium text-white mb-3">Inventory</h5>
+                <div className="space-y-2">
+                  {(editingCharacter.inventory || []).map((item, index) => (
+                    <div key={index} className="p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="font-medium text-white">{item.name}</div>
+                          {item.description && (
+                            <div className="text-sm text-slate-300">{item.description}</div>
+                          )}
+                          <div className="text-xs text-slate-500">Quantity: {item.quantity || 1}</div>
+                        </div>
+                        <button
+                          onClick={() => setEditingCharacter(prev => ({
+                            ...prev,
+                            inventory: prev.inventory?.filter((_, i) => i !== index) || []
+                          }))}
+                          className="text-red-400 hover:text-red-300"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {(editingCharacter.inventory || []).length === 0 && (
+                  <div className="text-center text-slate-400 py-8">
+                    No items in inventory
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
