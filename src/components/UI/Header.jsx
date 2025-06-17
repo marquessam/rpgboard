@@ -1,6 +1,6 @@
 // src/components/UI/Header.jsx
 import React from 'react';
-import { Image, Paintbrush, Grid3X3, Users } from 'lucide-react';
+import { Image, Paintbrush, LayoutGrid, Users } from 'lucide-react';
 
 const Header = ({
   onShowScene,
@@ -46,7 +46,7 @@ const Header = ({
                 : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500'
             }`}
           >
-            <Grid3X3 size={16} className="inline mr-2" />
+            <LayoutGrid size={16} className="inline mr-2" />
             Grid
           </button>
           <select
