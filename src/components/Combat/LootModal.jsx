@@ -1,6 +1,6 @@
 // src/components/Combat/LootModal.jsx
 import React, { useState } from 'react';
-import { Treasure, X, Coins } from 'lucide-react';
+import { Gift, X, Coins } from 'lucide-react';
 
 const defaultLootTables = {
   goblin: [
@@ -125,7 +125,7 @@ const LootModal = ({ deadCharacter, onClose, onTakeLoot }) => {
       <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md">
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Treasure size={20} className="text-yellow-500" />
+            <Gift size={20} className="text-yellow-500" />
             <h3 className="text-xl font-bold text-slate-100">
               Loot: {deadCharacter.name}
             </h3>
