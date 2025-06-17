@@ -1,4 +1,4 @@
-// src/hooks/useCharacters.js - Updated with D&D 5e support
+// src/hooks/useCharacters.js - Fixed version
 import { useLocalStorage } from './useLocalStorage';
 import { newCharacterTemplate, colors } from '../utils/constants';
 import { getStatModifier } from '../utils/helpers';
@@ -9,37 +9,74 @@ export const useCharacters = () => {
   const addCharacter = () => {
     const newChar = { 
       ...newCharacterTemplate, 
-      id: Date.now(),
+      id: `char_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       color: colors[characters.length % colors.length],
       // D&D 5e specific defaults
       ac: 10 + getStatModifier(newCharacterTemplate.dex),
       proficiencyBonus: 2,
       speed: 30,
       conditions: [],
-      actions: []
+      actions: [],
+      spells: []
     };
-    setCharacters(prev => [...prev, newChar]);
+    
+    console.log('Adding new character:', newChar);
+    setCharacters(prev => {
+      const updated = [...prev, newChar];
+      console.log('Updated characters list:', updated);
+      return updated;
+    });
     return newChar;
   };
 
+  const addMonster = (monsterTemplate) => {
+    const monster = {
+      ...monsterTemplate,
+      id: `monster_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      // Ensure position is set
+      x: monsterTemplate.x || 0,
+      y: monsterTemplate.y || 0
+    };
+    
+    console.log('Adding monster:', monster);
+    setCharacters(prev => {
+      const updated = [...prev, monster];
+      console.log('Updated characters list with monster:', updated);
+      return updated;
+    });
+    return monster;
+  };
+
   const updateCharacter = (updatedChar) => {
+    console.log('Updating character:', updatedChar);
+    
     // Ensure D&D properties are set
     const charWithDefaults = {
       ...updatedChar,
-      ac: updatedChar.ac || (10 + getStatModifier(updatedChar.dex)),
+      ac: updatedChar.ac || (10 + getStatModifier(updatedChar.dex || 10)),
       proficiencyBonus: updatedChar.proficiencyBonus || 2,
       speed: updatedChar.speed || 30,
       conditions: updatedChar.conditions || [],
-      actions: updatedChar.actions || []
+      actions: updatedChar.actions || [],
+      spells: updatedChar.spells || []
     };
     
-    setCharacters(prev => prev.map(char => 
-      char.id === updatedChar.id ? charWithDefaults : char
-    ));
+    setCharacters(prev => {
+      const updated = prev.map(char => 
+        char.id === updatedChar.id ? charWithDefaults : char
+      );
+      console.log('Characters after update:', updated);
+      return updated;
+    });
   };
 
   const deleteCharacter = (id) => {
-    setCharacters(prev => prev.filter(char => char.id !== id));
+    console.log('Deleting character:', id);
+    setCharacters(prev => {
+      const updated = prev.filter(char => char.id !== id);
+      console.log('Characters after deletion:', updated);
+      return updated;
+    });
   };
 
   const moveCharacter = (id, x, y) => {
@@ -93,6 +130,7 @@ export const useCharacters = () => {
   return {
     characters,
     addCharacter,
+    addMonster,
     updateCharacter,
     deleteCharacter,
     moveCharacter,
