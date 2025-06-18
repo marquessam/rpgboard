@@ -20,17 +20,15 @@ const CharacterToken = ({
     const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
     const isDead = currentHp <= 0;
     
-    // Interaction rules:
-    // - DM can interact with anyone
-    // - Players can interact with non-monsters (their characters)
-    // - Anyone can loot dead monsters
-    const canInteract = isDMMode || !character.isMonster || (isDead && character.isMonster && !character.looted);
+    // Everyone can interact with living characters
+    // Anyone can loot dead monsters
+    const canInteract = !isDead || (isDead && character.isMonster && !character.looted);
     
     if (canInteract && onClick) {
       onClick(e);
     }
-    // Only allow dragging if DM or player's own character
-    if ((isDMMode || !character.isMonster) && onMouseDown && !isDead) {
+    // Anyone can drag living characters
+    if (onMouseDown && !isDead) {
       onMouseDown(e);
     }
   };
@@ -39,13 +37,13 @@ const CharacterToken = ({
   const tokenSize = Math.max(24, Math.min(64, (800 / gridSize) * 0.8));
   const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
   const isDead = currentHp <= 0;
-  const canInteract = isDMMode || !character.isMonster || (isDead && character.isMonster && !character.looted);
+  const canInteract = !isDead || (isDead && character.isMonster && !character.looted);
 
   // Determine cursor style
   const getCursorStyle = () => {
     if (paintMode) return 'pointer-events-none';
     if (!canInteract) return 'cursor-default';
-    if ((isDMMode || !character.isMonster) && !isDead) return 'cursor-move';
+    if (!isDead) return 'cursor-move';
     return 'cursor-pointer';
   };
 
@@ -239,24 +237,24 @@ const CharacterToken = ({
           </div>
           
           {/* Interaction hints */}
-          {isDMMode && !isDead && (
-            <div className="text-yellow-300 text-xs mt-1">
-              Click to select • Drag to move
-            </div>
-          )}
-          {isDMMode && isDead && character.isMonster && !character.looted && (
-            <div className="text-yellow-300 text-xs mt-1">
-              Click to search for loot
-            </div>
-          )}
-          {!isDMMode && !character.isMonster && !isDead && (
+          {!isDead && (
             <div className="text-blue-300 text-xs mt-1">
               Click to select • Drag to move
             </div>
           )}
-          {!isDMMode && character.isMonster && (
+          {isDead && character.isMonster && !character.looted && (
+            <div className="text-yellow-300 text-xs mt-1">
+              Click to search for loot
+            </div>
+          )}
+          {isDead && character.isMonster && character.looted && (
             <div className="text-slate-400 text-xs mt-1">
-              {isDead && !character.looted ? 'Click to loot' : 'View only'}
+              Already looted
+            </div>
+          )}
+          {isDead && !character.isMonster && (
+            <div className="text-red-300 text-xs mt-1">
+              This character has been defeated
             </div>
           )}
         </div>
