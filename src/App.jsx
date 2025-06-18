@@ -78,6 +78,9 @@ const App = () => {
     closeDialogue 
   } = useDialogue();
 
+  // Player inventory state
+  const [playerInventory, setPlayerInventory] = useLocalStorage('playerInventory', []);
+
   // Chat state
   const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
   const [playerMessage, setPlayerMessage] = useState('');
@@ -226,6 +229,17 @@ const App = () => {
   };
 
   const handleTakeLoot = (lootItems) => {
+    // Add items to player inventory
+    setPlayerInventory(prev => [
+      ...prev,
+      ...lootItems.map(item => ({
+        ...item,
+        source: lootingCharacter.name,
+        dateObtained: new Date().toLocaleString(),
+        id: `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      }))
+    ]);
+
     // Add loot to combat log
     setCombatMessages(prev => [...prev, {
       type: 'loot',
@@ -234,10 +248,19 @@ const App = () => {
       timestamp: new Date().toLocaleTimeString()
     }]);
 
+    // Mark the character as looted
     updateCharacter({
       ...lootingCharacter,
       looted: true
     });
+    
+    // Show success message
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `Added ${lootItems.length} items to inventory from ${lootingCharacter.name}`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
   };
 
   const clearCombatLog = () => {
@@ -286,22 +309,8 @@ const App = () => {
     { id: 'log', name: 'Combat Log', icon: '📜', playerVisible: true }
   ].filter(tab => isDMMode || tab.playerVisible);
 
-  const renderRightPanelContent = () => {
+  const renderDMToolsContent = () => {
     switch (activeRightTab) {
-      case 'chat':
-        return (
-          <ChatPanel
-            chatMessages={chatMessages}
-            onAddMessage={setChatMessages}
-            playerMessage={playerMessage}
-            onPlayerMessageChange={setPlayerMessage}
-            playerName={playerName}
-            onPlayerNameChange={setPlayerName}
-            characters={characters}
-            onMakeCharacterSpeak={handleMakeCharacterSpeak}
-            autoScroll={false} // Disable auto-scroll for dialogue
-          />
-        );
       case 'actions':
         return (
           <ActionPanel
@@ -337,13 +346,6 @@ const App = () => {
             characters={characters}
             onUpdateCharacter={updateCharacter}
             onCombatMessage={handleCombatMessage}
-          />
-        );
-      case 'log':
-        return (
-          <CombatLog
-            combatMessages={combatMessages}
-            onClearLog={clearCombatLog}
           />
         );
       default:
@@ -463,7 +465,7 @@ const App = () => {
 
                 {/* Tab Content */}
                 <div className="transition-all duration-200 ease-in-out">
-                  {renderRightPanelContent()}
+                  {renderDMToolsContent()}
                 </div>
               </div>
             )}
@@ -516,6 +518,10 @@ const App = () => {
                     characters={characters}
                     onMakeCharacterSpeak={handleMakeCharacterSpeak}
                     autoScroll={false}
+                    playerInventory={playerInventory}
+                    onRemoveInventoryItem={(index) => {
+                      setPlayerInventory(prev => prev.filter((_, i) => i !== index));
+                    }}
                   />
                 )}
                 {activeRightTab === 'log' && (
