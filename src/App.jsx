@@ -16,6 +16,7 @@ import ConditionsPanel from './components/Combat/ConditionsPanel';
 import SpellPanel from './components/Combat/SpellPanel';
 import LootModal from './components/Combat/LootModal';
 import DMControlPanel from './components/UI/DMControlPanel';
+import DMControlPanel from './components/UI/DMControlPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
@@ -410,7 +411,13 @@ const App = () => {
               onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
-              onMoveCharacter={isDMMode ? moveCharacter : null}
+              onMoveCharacter={isDMMode ? moveCharacter : ((id, x, y) => {
+                // Players can only move non-monsters
+                const character = characters.find(c => c.id === id);
+                if (character && !character.isMonster) {
+                  moveCharacter(id, x, y);
+                }
+              })}
               terrain={terrain}
               onTerrainChange={isDMMode ? setTerrain : null}
               customTerrainSprites={customTerrainSprites}
@@ -534,25 +541,29 @@ const App = () => {
           />
         )}
 
-        {showCharacterModal && editingCharacter && isDMMode && (
+        {showCharacterModal && editingCharacter && (
           <SimpleCharacterModal
             character={editingCharacter}
             characters={characters}
+            isDMMode={isDMMode}
             onSave={(savedCharacter) => {
               updateCharacter(savedCharacter);
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
             onDelete={(characterId) => {
-              deleteCharacter(characterId);
-              setShowCharacterModal(false);
-              setEditingCharacter(null);
+              // Only DM can delete, or players can delete their own non-monster characters
+              if (isDMMode || !editingCharacter.isMonster) {
+                deleteCharacter(characterId);
+                setShowCharacterModal(false);
+                setEditingCharacter(null);
+              }
             }}
             onClose={() => {
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
-            onUpload={openUploadModal}
+            onUpload={isDMMode ? openUploadModal : null}
             onAttack={handleAttack}
             onCastSpell={handleCastSpell}
           />
