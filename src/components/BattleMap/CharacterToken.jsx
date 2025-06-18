@@ -1,4 +1,4 @@
-// src/components/BattleMap/CharacterToken.jsx - Enhanced with DM mode awareness
+// src/components/BattleMap/CharacterToken.jsx - Enhanced with full player access
 import React from 'react';
 import { getHealthColor, getStatModifier } from '../../utils/helpers';
 
@@ -27,7 +27,7 @@ const CharacterToken = ({
     if (canInteract && onClick) {
       onClick(e);
     }
-    // Anyone can drag living characters
+    // Everyone can drag living characters (removed isDMMode restriction)
     if (onMouseDown && !isDead) {
       onMouseDown(e);
     }
@@ -39,7 +39,7 @@ const CharacterToken = ({
   const isDead = currentHp <= 0;
   const canInteract = !isDead || (isDead && character.isMonster && !character.looted);
 
-  // Determine cursor style
+  // Determine cursor style - everyone gets full interaction
   const getCursorStyle = () => {
     if (paintMode) return 'pointer-events-none';
     if (!canInteract) return 'cursor-default';
@@ -62,7 +62,7 @@ const CharacterToken = ({
       onMouseDown={handleMouseDown}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      title={`${character.name}${isDead ? ' (Dead)' : ''}${!isDMMode ? ' (View Only)' : ''}`}
+      title={`${character.name}${isDead ? ' (Dead)' : ''} - Click to select and control`}
     >
       {/* Selection Ring */}
       {isSelected && !isDead && (
@@ -138,8 +138,8 @@ const CharacterToken = ({
         </div>
       )}
 
-      {/* Player Mode Indicator */}
-      {!isDMMode && !character.isMonster && (
+      {/* Control Indicator - Shows for all players */}
+      {!character.isMonster && (
         <div 
           className="absolute bg-blue-500 text-white text-xs px-1 rounded-full border border-white"
           style={{
@@ -148,7 +148,7 @@ const CharacterToken = ({
             fontSize: `${Math.max(8, tokenSize * 0.2)}px`
           }}
         >
-          P
+          {isDMMode ? 'D' : 'P'}
         </div>
       )}
 
@@ -220,7 +220,6 @@ const CharacterToken = ({
               <span className="ml-1 text-red-300">(CR {character.cr})</span>
             )}
             {isDead && <span className="ml-1 text-red-400">(DEAD)</span>}
-            {!isDMMode && <span className="ml-1 text-blue-400">(View Only)</span>}
           </div>
           <div className="text-white text-xs mb-1">
             AC: {character.ac || (10 + getStatModifier(character.dex))} • 
@@ -236,10 +235,10 @@ const CharacterToken = ({
             />
           </div>
           
-          {/* Interaction hints */}
+          {/* Interaction hints - Updated for full access */}
           {!isDead && (
             <div className="text-blue-300 text-xs mt-1">
-              Click to select • Drag to move
+              Click to select • Drag to move • Full control available
             </div>
           )}
           {isDead && character.isMonster && !character.looted && (
