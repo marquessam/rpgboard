@@ -13,9 +13,9 @@ const ChatPanel = ({
   onPlayerNameChange,
   characters,
   onMakeCharacterSpeak,
-  autoScroll = true, // New prop to control auto-scroll
-  playerInventory = [], // Add inventory prop
-  onRemoveInventoryItem = null // Add inventory management
+  autoScroll = true,
+  currentActor = null, // Current selected character
+  onRemoveInventoryItem = null
 }) => {
   const chatEndRef = useRef(null);
   const lastMessageCountRef = useRef(chatMessages.length);
@@ -67,24 +67,24 @@ const ChatPanel = ({
         </h3>
         
         {/* Inventory Button */}
-        {playerInventory && playerInventory.length > 0 && (
+        {currentActor && currentActor.inventory && currentActor.inventory.length > 0 && (
           <button
             onClick={() => setShowInventory(!showInventory)}
             className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded-lg text-white text-sm transition-colors"
           >
             <Package size={16} />
-            Inventory ({playerInventory.length})
+            {currentActor.name}'s Items ({currentActor.inventory.length})
           </button>
         )}
       </div>
 
       {/* Inventory Display */}
-      {showInventory && playerInventory && (
+      {showInventory && currentActor && currentActor.inventory && (
         <div className="mb-4 bg-slate-700/50 border border-slate-600 rounded-lg p-3">
           <div className="flex justify-between items-center mb-3">
             <h4 className="font-medium text-yellow-300 flex items-center gap-2">
               <Package size={16} />
-              Your Inventory
+              {currentActor.name}'s Inventory
             </h4>
             <button
               onClick={() => setShowInventory(false)}
@@ -95,7 +95,7 @@ const ChatPanel = ({
           </div>
           
           <div className="space-y-2 max-h-40 overflow-y-auto">
-            {playerInventory.map((item, index) => (
+            {currentActor.inventory.map((item, index) => (
               <div key={item.id || index} className="flex justify-between items-center p-2 bg-slate-800/50 rounded border border-slate-600">
                 <div>
                   <div className="text-white text-sm font-medium">
@@ -117,7 +117,7 @@ const ChatPanel = ({
             ))}
           </div>
           
-          {playerInventory.length === 0 && (
+          {currentActor.inventory.length === 0 && (
             <div className="text-slate-400 text-center py-4 text-sm">
               No items in inventory
             </div>
@@ -148,6 +148,7 @@ const ChatPanel = ({
         playerMessage={playerMessage}
         onPlayerMessageChange={onPlayerMessageChange}
         onSendMessage={handleSendMessage}
+        currentActor={currentActor}
       />
     </div>
   );
