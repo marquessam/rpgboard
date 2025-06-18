@@ -56,7 +56,9 @@ const BattleMap = ({
   };
 
   const handleCharacterDrag = (character, e) => {
-    if (paintMode || !isDMMode || !onMoveCharacter) return;
+    // Allow DM to move anyone, players can only move non-monsters
+    if (paintMode || !onMoveCharacter) return;
+    if (!isDMMode && character.isMonster) return;
     
     e.preventDefault();
     e.stopPropagation();
