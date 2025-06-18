@@ -16,7 +16,6 @@ import ConditionsPanel from './components/Combat/ConditionsPanel';
 import SpellPanel from './components/Combat/SpellPanel';
 import LootModal from './components/Combat/LootModal';
 import DMControlPanel from './components/UI/DMControlPanel';
-import DMControlPanel from './components/UI/DMControlPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
