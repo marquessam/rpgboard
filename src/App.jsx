@@ -14,6 +14,7 @@ import CombatLog from './components/Combat/CombatLog';
 import InitiativeTracker from './components/Combat/InitiativeTracker';
 import ConditionsPanel from './components/Combat/ConditionsPanel';
 import SpellPanel from './components/Combat/SpellPanel';
+import InventoryPanel from './components/Combat/InventoryPanel';
 import LootModal from './components/Combat/LootModal';
 import DMControlPanel from './components/UI/DMControlPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -335,12 +336,13 @@ const App = () => {
   };
 
   // Define which panels are available to everyone vs DM-only
-  const sharedTabs = ['actions', 'conditions', 'spells']; // Everyone gets these
+  const sharedTabs = ['actions', 'conditions', 'spells', 'inventory']; // Everyone gets these
   const dmOnlyTabs = ['initiative']; // Only DM gets these
   const availableSharedTabs = [
     { id: 'actions', name: 'Actions', icon: '⚔️' },
     { id: 'conditions', name: 'Conditions', icon: '🎭' },
-    { id: 'spells', name: 'Spells', icon: '✨' }
+    { id: 'spells', name: 'Spells', icon: '✨' },
+    { id: 'inventory', name: 'Inventory', icon: '🎒' }
   ];
   const availableDMTabs = [
     { id: 'initiative', name: 'Initiative', icon: '🎲' }
@@ -380,6 +382,36 @@ const App = () => {
             onCastSpell={handleCastSpell}
             onAddSpell={addSpellToCharacter}
             onRemoveSpell={removeSpellFromCharacter}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
+          />
+        );
+      case 'inventory':
+        return (
+          <InventoryPanel
+            selectedCharacter={currentActor}
+            onRemoveInventoryItem={(index) => {
+              if (currentActor && currentActor.inventory) {
+                const updatedActor = {
+                  ...currentActor,
+                  inventory: currentActor.inventory.filter((_, i) => i !== index)
+                };
+                updateCharacter(updatedActor);
+                setCurrentActor(updatedActor);
+              }
+            }}
+            onAddInventoryItem={(item) => {
+              if (currentActor) {
+                const updatedActor = {
+                  ...currentActor,
+                  inventory: [...(currentActor.inventory || []), item]
+                };
+                updateCharacter(updatedActor);
+                setCurrentActor(updatedActor);
+              }
+            }}
             onClearSelection={() => {
               setCurrentActor(null);
               setSelectedCharacterForActions(null);
@@ -614,16 +646,6 @@ const App = () => {
                     onMakeCharacterSpeak={handleMakeCharacterSpeak}
                     autoScroll={false}
                     currentActor={currentActor}
-                    onRemoveInventoryItem={(index) => {
-                      if (currentActor && currentActor.inventory) {
-                        const updatedActor = {
-                          ...currentActor,
-                          inventory: currentActor.inventory.filter((_, i) => i !== index)
-                        };
-                        updateCharacter(updatedActor);
-                        setCurrentActor(updatedActor);
-                      }
-                    }}
                   />
                 )}
                 {activeRightTab === 'log' && (
