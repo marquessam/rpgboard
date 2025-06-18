@@ -309,3 +309,28 @@ export const checkDatabaseHealth = async () => {
     };
   }
 };
+
+// Initialize database on app start (for production)
+export const initializeOnStartup = async () => {
+  try {
+    // Check if we're in a browser environment
+    if (typeof window === 'undefined') {
+      return false; // Skip in server-side rendering
+    }
+    
+    // Check if database connection is available
+    const health = await checkDatabaseHealth();
+    if (!health.healthy) {
+      console.warn('Database not available, using local storage fallback');
+      return false;
+    }
+    
+    // Initialize database tables
+    await initDatabase();
+    console.log('Database initialized successfully');
+    return true;
+  } catch (error) {
+    console.warn('Database initialization failed, using local storage fallback:', error);
+    return false;
+  }
+};
