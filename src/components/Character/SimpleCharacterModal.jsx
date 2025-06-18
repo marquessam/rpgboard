@@ -1,4 +1,4 @@
-// src/components/Character/SimpleCharacterModal.jsx - Enhanced with DM mode restrictions
+// src/components/Character/SimpleCharacterModal.jsx - Enhanced with full player access
 import React, { useState } from 'react';
 import { Upload, Trash2, X, Plus, Sword, Sparkles, Heart } from 'lucide-react';
 import { colorOptions, borderColorOptions } from '../../utils/constants';
@@ -78,7 +78,7 @@ const SimpleCharacterModal = ({
     }
   };
 
-  // Determine if player can edit this character (everyone can now)
+  // Everyone has full editing rights (removed canEdit restriction)
   const canEdit = true;
   const canDelete = true;
 
@@ -125,9 +125,15 @@ const SimpleCharacterModal = ({
             </div>
           </div>
 
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Full Access Indicator */}
+            <span className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
+              Full Access
+            </span>
+            <button onClick={onClose} className="text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -315,7 +321,7 @@ const SimpleCharacterModal = ({
             </div>
           )}
 
-          {/* Other tabs (actions, spells, notes) remain similar but with canEdit checks */}
+          {/* Actions Tab - Full editing available */}
           {activeTab === 'actions' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
@@ -369,19 +375,24 @@ const SimpleCharacterModal = ({
 
               {(editingCharacter.actions || []).length === 0 && (
                 <div className="text-center text-slate-400 py-8">
-                  No actions available
+                  No actions available. Click "Add Action" to create combat abilities.
                 </div>
               )}
             </div>
           )}
 
-          {/* Similar pattern for spells and notes tabs */}
+          {/* Spells Tab */}
           {activeTab === 'spells' && (
-            <div className="text-center text-slate-400 py-8">
-              Spell management coming soon...
+            <div className="space-y-4">
+              <div className="text-center text-slate-400 py-8">
+                <Sparkles size={48} className="mx-auto mb-4 opacity-50" />
+                <p>Spell management coming soon...</p>
+                <p className="text-xs mt-2">Use the Spells panel in the character controls for now</p>
+              </div>
             </div>
           )}
 
+          {/* Notes Tab */}
           {activeTab === 'notes' && (
             <div className="space-y-4">
               <div>
@@ -391,6 +402,16 @@ const SimpleCharacterModal = ({
                   onChange={(e) => setEditingCharacter(prev => ({ ...prev, notes: e.target.value }))}
                   placeholder="Character backstory, personality traits, important notes..."
                   className="w-full h-32 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white resize-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-2">Quick Message</label>
+                <textarea
+                  value={editingCharacter.quickMessage || ''}
+                  onChange={(e) => setEditingCharacter(prev => ({ ...prev, quickMessage: e.target.value }))}
+                  placeholder="What this character says when you click the 💬 button..."
+                  className="w-full h-20 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors resize-none"
                 />
               </div>
 
@@ -424,7 +445,8 @@ const SimpleCharacterModal = ({
         <div className="border-t border-slate-700 p-4 flex justify-between">
           <button
             onClick={handleDelete}
-            className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded text-white font-medium"
+            disabled={!canDelete}
+            className="bg-red-500 hover:bg-red-600 disabled:bg-slate-600 px-4 py-2 rounded text-white font-medium"
           >
             <Trash2 size={16} className="inline mr-1" />
             Delete
@@ -439,7 +461,8 @@ const SimpleCharacterModal = ({
             </button>
             <button
               onClick={handleSave}
-              className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded text-white font-medium"
+              disabled={!canEdit}
+              className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 px-4 py-2 rounded text-white font-medium"
             >
               Save Character
             </button>
