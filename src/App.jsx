@@ -1,5 +1,5 @@
-// src/App.jsx - Enhanced with full player access and improved looting
-import React, { useState } from 'react';
+// src/App.jsx - Enhanced with database integration
+import React, { useState, useEffect } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
 import ChatPanel from './components/Chat/ChatPanel';
@@ -20,8 +20,22 @@ import DMControlPanel from './components/UI/DMControlPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
+import { useDatabase } from './hooks/useDatabase';
 
 const App = () => {
+  // Database integration
+  const {
+    isConnected: isDatabaseConnected,
+    isLoading: isDatabaseLoading,
+    uploadImage,
+    getImage,
+    saveCharacterToDb,
+    loadCharactersFromDb,
+    deleteCharacterFromDb,
+    saveGameState,
+    loadGameState
+  } = useDatabase();
+
   // UI Mode state
   const [isDMMode, setIsDMMode] = useLocalStorage('isDMMode', true);
   const [collapsedPanels, setCollapsedPanels] = useLocalStorage('collapsedPanels', {});
@@ -68,7 +82,8 @@ const App = () => {
     addCondition,
     removeCondition,
     healCharacter,
-    damageCharacter
+    damageCharacter,
+    setCharacters
   } = useCharacters();
   
   const { 
@@ -85,6 +100,111 @@ const App = () => {
   const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
   const [playerMessage, setPlayerMessage] = useState('');
   const [playerName, setPlayerName] = useState('');
+
+  // Load game state from database on startup
+  useEffect(() => {
+    const loadGameData = async () => {
+      if (isDatabaseConnected && !isDatabaseLoading) {
+        try {
+          console.log('🔄 Loading game data from database...');
+          
+          // Load characters from database
+          const dbCharacters = await loadCharactersFromDb();
+          if (dbCharacters.length > 0) {
+            console.log(`✅ Loaded ${dbCharacters.length} characters from database`);
+            
+            // Resolve image references for characters
+            const charactersWithImages = await Promise.all(
+              dbCharacters.map(async (char) => {
+                const updatedChar = { ...char };
+                
+                // Load sprite if it's a database reference
+                if (char.sprite && char.sprite.startsWith('img_')) {
+                  const spriteData = await getImage(char.sprite);
+                  if (spriteData) {
+                    updatedChar.sprite = spriteData;
+                  }
+                }
+                
+                // Load portrait if it's a database reference
+                if (char.portrait && char.portrait.startsWith('img_')) {
+                  const portraitData = await getImage(char.portrait);
+                  if (portraitData) {
+                    updatedChar.portrait = portraitData;
+                  }
+                }
+                
+                return updatedChar;
+              })
+            );
+            
+            setCharacters(charactersWithImages);
+          }
+          
+          // Load game session data
+          const gameState = await loadGameState();
+          if (gameState) {
+            console.log('✅ Loaded game state from database');
+            
+            // Apply game state to relevant components
+            if (gameState.terrain) setTerrain(gameState.terrain);
+            if (gameState.customTerrainSprites) setCustomTerrainSprites(gameState.customTerrainSprites);
+            if (gameState.gridSize) setGridSize(gameState.gridSize);
+            if (gameState.chatMessages) setChatMessages(gameState.chatMessages);
+            if (gameState.combatMessages) setCombatMessages(gameState.combatMessages);
+          }
+          
+        } catch (error) {
+          console.warn('⚠️ Failed to load game data from database:', error);
+        }
+      }
+    };
+
+    loadGameData();
+  }, [isDatabaseConnected, isDatabaseLoading]);
+
+  // Auto-save game state to database periodically
+  useEffect(() => {
+    if (!isDatabaseConnected) return;
+
+    const autoSave = async () => {
+      try {
+        const gameState = {
+          characters,
+          terrain,
+          customTerrainSprites,
+          gridSize,
+          chatMessages: chatMessages.slice(-50), // Keep last 50 messages
+          combatMessages: combatMessages.slice(-50), // Keep last 50 messages
+          isDMMode,
+          showGrid,
+          showNames,
+          gridColor
+        };
+
+        await saveGameState(gameState);
+        console.log('💾 Game state auto-saved to database');
+      } catch (error) {
+        console.warn('⚠️ Failed to auto-save game state:', error);
+      }
+    };
+
+    // Auto-save every 30 seconds
+    const interval = setInterval(autoSave, 30000);
+    return () => clearInterval(interval);
+  }, [
+    isDatabaseConnected, 
+    characters, 
+    terrain, 
+    customTerrainSprites, 
+    gridSize, 
+    chatMessages, 
+    combatMessages,
+    isDMMode,
+    showGrid,
+    showNames,
+    gridColor
+  ]);
 
   // Enhanced makeCharacterSpeak that also adds to chat
   const handleMakeCharacterSpeak = (character, text) => {
@@ -366,6 +486,36 @@ const App = () => {
     }));
   };
 
+  // Enhanced character update function that saves to database
+  const handleCharacterUpdate = async (character) => {
+    updateCharacter(character);
+    
+    // Save to database if connected
+    if (isDatabaseConnected) {
+      try {
+        await saveCharacterToDb(character);
+        console.log(`💾 Character ${character.name} saved to database`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to save character ${character.name} to database:`, error);
+      }
+    }
+  };
+
+  // Enhanced character deletion that removes from database
+  const handleCharacterDelete = async (characterId) => {
+    deleteCharacter(characterId);
+    
+    // Delete from database if connected
+    if (isDatabaseConnected) {
+      try {
+        await deleteCharacterFromDb(characterId);
+        console.log(`🗑️ Character deleted from database: ${characterId}`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to delete character from database:`, error);
+      }
+    }
+  };
+
   // Define which panels are available to everyone vs DM-only
   const sharedTabs = ['actions', 'conditions', 'spells', 'inventory']; // Everyone gets these
   const dmOnlyTabs = ['initiative']; // Only DM gets these
@@ -429,7 +579,7 @@ const App = () => {
                   ...currentActor,
                   inventory: currentActor.inventory.filter((_, i) => i !== index)
                 };
-                updateCharacter(updatedActor);
+                handleCharacterUpdate(updatedActor);
                 setCurrentActor(updatedActor);
               }
             }}
@@ -439,7 +589,7 @@ const App = () => {
                   ...currentActor,
                   inventory: [...(currentActor.inventory || []), item]
                 };
-                updateCharacter(updatedActor);
+                handleCharacterUpdate(updatedActor);
                 setCurrentActor(updatedActor);
               }
             }}
@@ -449,7 +599,7 @@ const App = () => {
                   ...currentActor,
                   currency: newCurrency
                 };
-                updateCharacter(updatedActor);
+                handleCharacterUpdate(updatedActor);
                 setCurrentActor(updatedActor);
               }
             }}
@@ -470,7 +620,7 @@ const App = () => {
         return (
           <InitiativeTracker
             characters={characters}
-            onUpdateCharacter={updateCharacter}
+            onUpdateCharacter={handleCharacterUpdate}
             onCombatMessage={handleCombatMessage}
           />
         );
@@ -494,6 +644,8 @@ const App = () => {
           onGridColorChange={setGridColor}
           showNames={showNames}
           onToggleNames={() => setShowNames(!showNames)}
+          isDatabaseConnected={isDatabaseConnected}
+          isDatabaseLoading={isDatabaseLoading}
         />
 
         {/* DM Control Panel - Only visible in DM mode */}
@@ -529,7 +681,7 @@ const App = () => {
               gridSize={gridSize}
               onGridSizeChange={setGridSize}
               characters={characters}
-              onAddCharacter={handleAddCharacter} // Everyone can add characters
+              onAddCharacter={handleAddCharacter}
               onEditCharacter={(char) => {
                 setEditingCharacter(char);
                 setShowCharacterModal(true);
@@ -539,7 +691,7 @@ const App = () => {
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
               onMoveCharacter={moveCharacter}
               terrain={terrain}
-              onTerrainChange={isDMMode ? setTerrain : null} // Terrain editing still DM-only
+              onTerrainChange={isDMMode ? setTerrain : null}
               customTerrainSprites={customTerrainSprites}
               paintMode={isDMMode ? paintMode : false}
               selectedTerrain={selectedTerrain}
@@ -547,7 +699,7 @@ const App = () => {
               showGrid={showGrid}
               gridColor={gridColor}
               showNames={showNames}
-              onUpload={isDMMode ? openUploadModal : null}
+              onUpload={openUploadModal}
               isDMMode={isDMMode}
             />
           </div>
@@ -568,6 +720,12 @@ const App = () => {
                   {!currentActor && (
                     <span className="ml-3 text-sm bg-slate-500/20 text-slate-400 px-2 py-1 rounded">
                       No character selected
+                    </span>
+                  )}
+                  {/* Database status indicator */}
+                  {isDatabaseConnected && (
+                    <span className="ml-3 text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
+                      ☁️ Cloud Sync
                     </span>
                   )}
                 </h3>
@@ -717,7 +875,7 @@ const App = () => {
             characters={characters}
             isDMMode={isDMMode}
             onSave={(savedCharacter) => {
-              updateCharacter(savedCharacter);
+              handleCharacterUpdate(savedCharacter);
               // Update current actor if it's the same character
               if (currentActor && currentActor.id === savedCharacter.id) {
                 setCurrentActor(savedCharacter);
@@ -726,7 +884,7 @@ const App = () => {
               setEditingCharacter(null);
             }}
             onDelete={(characterId) => {
-              deleteCharacter(characterId);
+              handleCharacterDelete(characterId);
               // Clear current actor if it was deleted
               if (currentActor && currentActor.id === characterId) {
                 setCurrentActor(null);
@@ -739,9 +897,11 @@ const App = () => {
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
-            onUpload={openUploadModal} // Everyone can upload
+            onUpload={openUploadModal}
             onAttack={handleAttack}
             onCastSpell={handleCastSpell}
+            isDatabaseConnected={isDatabaseConnected}
+            getImage={getImage}
           />
         )}
 
@@ -783,22 +943,44 @@ const App = () => {
         {showUploadModal && (
           <UploadModal
             uploadType={uploadType}
-            onUpload={(file, result) => {
+            onUpload={async (file, result) => {
+              let finalResult = result;
+              
+              // If database is connected, upload image to database
+              if (isDatabaseConnected && uploadImage) {
+                try {
+                  const fileName = file.name || `${uploadType}_${Date.now()}`;
+                  const imageId = await uploadImage(result, uploadType, fileName);
+                  
+                  if (imageId) {
+                    finalResult = imageId; // Store database ID instead of data URL
+                    console.log(`✅ Image uploaded to database: ${imageId}`);
+                  } else {
+                    console.warn('⚠️ Failed to upload to database, using local storage');
+                  }
+                } catch (error) {
+                  console.warn('⚠️ Database upload failed, using local storage:', error);
+                }
+              }
+              
+              // Apply the result (either database ID or data URL)
               if (uploadType === 'portrait') {
-                setEditingCharacter(prev => ({ ...prev, portrait: result }));
+                setEditingCharacter(prev => ({ ...prev, portrait: finalResult }));
               } else if (uploadType === 'sprite') {
-                setEditingCharacter(prev => ({ ...prev, sprite: result }));
+                setEditingCharacter(prev => ({ ...prev, sprite: finalResult }));
               } else if (uploadType === 'terrain') {
                 setCustomTerrainSprites(prev => ({
                   ...prev,
-                  [selectedTerrain]: result
+                  [selectedTerrain]: finalResult
                 }));
               } else if (uploadType === 'scene') {
-                setSceneImage(result);
+                setSceneImage(finalResult);
               }
+              
               setShowUploadModal(false);
             }}
             onClose={() => setShowUploadModal(false)}
+            isDatabaseConnected={isDatabaseConnected}
           />
         )}
       </div>
