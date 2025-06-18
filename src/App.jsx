@@ -1,4 +1,4 @@
-// src/App.jsx - Clean rewrite with no syntax errors
+// src/App.jsx - Enhanced with DM/Player mode separation and polished UI
 import React, { useState } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -15,11 +15,16 @@ import InitiativeTracker from './components/Combat/InitiativeTracker';
 import ConditionsPanel from './components/Combat/ConditionsPanel';
 import SpellPanel from './components/Combat/SpellPanel';
 import LootModal from './components/Combat/LootModal';
+import DMControlPanel from './components/UI/DMControlPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
 
 const App = () => {
+  // UI Mode state
+  const [isDMMode, setIsDMMode] = useLocalStorage('isDMMode', true);
+  const [collapsedPanels, setCollapsedPanels] = useLocalStorage('collapsedPanels', {});
+
   // Global state
   const [showCharacterModal, setShowCharacterModal] = useState(false);
   const [showSceneModal, setShowSceneModal] = useState(false);
@@ -29,7 +34,7 @@ const App = () => {
   const [uploadType, setUploadType] = useState('sprite');
   const [editingCharacter, setEditingCharacter] = useState(null);
   const [selectedCharacterForActions, setSelectedCharacterForActions] = useState(null);
-  const [activeTab, setActiveTab] = useState('actions');
+  const [activeRightTab, setActiveRightTab] = useState('chat');
 
   // Map state
   const [gridSize, setGridSize] = useLocalStorage('gridSize', 20);
@@ -102,16 +107,12 @@ const App = () => {
   };
 
   const handleAddCharacter = () => {
-    console.log('handleAddCharacter called');
     const newChar = addCharacter();
-    console.log('New character created:', newChar);
     setEditingCharacter(newChar);
     setShowCharacterModal(true);
   };
 
   const handleAddMonster = (monster) => {
-    console.log('handleAddMonster called with:', monster);
-    
     // Find a suitable position on the map
     let x = Math.floor(Math.random() * (gridSize - 5)) + 2;
     let y = Math.floor(Math.random() * (gridSize - 5)) + 2;
@@ -129,9 +130,6 @@ const App = () => {
     }
     
     const monsterWithPosition = { ...monster, x, y };
-    console.log('Adding monster with position:', monsterWithPosition);
-    
-    // Use addMonster instead of updateCharacter
     const addedMonster = addMonster(monsterWithPosition);
     
     // Add combat log message
@@ -140,13 +138,9 @@ const App = () => {
       text: `${monster.name} appears on the battlefield!`,
       timestamp: new Date().toLocaleTimeString()
     }]);
-
-    console.log('Monster added successfully:', addedMonster);
   };
 
   const handleAttack = (combatResult, targetId, damage) => {
-    console.log('handleAttack called:', combatResult, targetId, damage);
-    
     // Add attack to combat log
     setCombatMessages(prev => [...prev, {
       ...combatResult,
@@ -216,10 +210,7 @@ const App = () => {
   };
 
   const handleCharacterSelect = (character) => {
-    if (!character) {
-      console.error('Character is null or undefined');
-      return;
-    }
+    if (!character) return;
 
     const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
     const isDead = currentHp <= 0;
@@ -232,7 +223,6 @@ const App = () => {
       // Regular selection for living characters
       setSelectedCharacterForActions(character);
     }
-    // Dead player characters don't do anything special for now
   };
 
   const handleTakeLoot = (lootItems) => {
@@ -244,7 +234,6 @@ const App = () => {
       timestamp: new Date().toLocaleTimeString()
     }]);
 
-    // Mark the character as looted (could add a 'looted' property)
     updateCharacter({
       ...lootingCharacter,
       looted: true
@@ -279,56 +268,60 @@ const App = () => {
     setCombatMessages(prev => [...prev, message]);
   };
 
-  const renderRightPanel = () => {
-    const tabs = [
-      { id: 'actions', name: 'Actions', icon: '⚔️' },
-      { id: 'conditions', name: 'Conditions', icon: '🎭' },
-      { id: 'spells', name: 'Spells', icon: '✨' },
-      { id: 'initiative', name: 'Initiative', icon: '🎲' }
-    ];
+  const togglePanel = (panelId) => {
+    setCollapsedPanels(prev => ({
+      ...prev,
+      [panelId]: !prev[panelId]
+    }));
+  };
 
-    return (
-      <div className="space-y-4">
-        {/* Tab Navigation */}
-        <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-2">
-          <div className="grid grid-cols-2 gap-1">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                  activeTab === tab.id
-                    ? 'bg-blue-500 border border-blue-400 text-white shadow-lg shadow-blue-500/25'
-                    : 'bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                <span className="mr-1">{tab.icon}</span>
-                {tab.name}
-              </button>
-            ))}
-          </div>
-        </div>
+  // Define which panels are DM-only
+  const dmOnlyTabs = ['actions', 'conditions', 'spells', 'initiative'];
+  const availableRightTabs = [
+    { id: 'chat', name: 'Chat', icon: '💬', playerVisible: true },
+    { id: 'actions', name: 'Actions', icon: '⚔️', playerVisible: false },
+    { id: 'conditions', name: 'Conditions', icon: '🎭', playerVisible: false },
+    { id: 'spells', name: 'Spells', icon: '✨', playerVisible: false },
+    { id: 'initiative', name: 'Initiative', icon: '🎲', playerVisible: false },
+    { id: 'log', name: 'Combat Log', icon: '📜', playerVisible: true }
+  ].filter(tab => isDMMode || tab.playerVisible);
 
-        {/* Tab Content */}
-        {activeTab === 'actions' && (
+  const renderRightPanelContent = () => {
+    switch (activeRightTab) {
+      case 'chat':
+        return (
+          <ChatPanel
+            chatMessages={chatMessages}
+            onAddMessage={setChatMessages}
+            playerMessage={playerMessage}
+            onPlayerMessageChange={setPlayerMessage}
+            playerName={playerName}
+            onPlayerNameChange={setPlayerName}
+            characters={characters}
+            onMakeCharacterSpeak={handleMakeCharacterSpeak}
+            autoScroll={false} // Disable auto-scroll for dialogue
+          />
+        );
+      case 'actions':
+        return (
           <ActionPanel
             selectedCharacter={selectedCharacterForActions}
             characters={characters}
             onAttack={handleAttack}
             onClearSelection={() => setSelectedCharacterForActions(null)}
           />
-        )}
-
-        {activeTab === 'conditions' && (
+        );
+      case 'conditions':
+        return (
           <ConditionsPanel
             selectedCharacter={selectedCharacterForActions}
             onAddCondition={addCondition}
             onRemoveCondition={removeCondition}
             onClearSelection={() => setSelectedCharacterForActions(null)}
           />
-        )}
-
-        {activeTab === 'spells' && (
+        );
+      case 'spells':
+        return (
           <SpellPanel
             selectedCharacter={selectedCharacterForActions}
             characters={characters}
@@ -337,23 +330,33 @@ const App = () => {
             onRemoveSpell={removeSpellFromCharacter}
             onClearSelection={() => setSelectedCharacterForActions(null)}
           />
-        )}
-
-        {activeTab === 'initiative' && (
+        );
+      case 'initiative':
+        return (
           <InitiativeTracker
             characters={characters}
             onUpdateCharacter={updateCharacter}
             onCombatMessage={handleCombatMessage}
           />
-        )}
-      </div>
-    );
+        );
+      case 'log':
+        return (
+          <CombatLog
+            combatMessages={combatMessages}
+            onClearLog={clearCombatLog}
+          />
+        );
+      default:
+        return null;
+    }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="max-w-full mx-auto p-6 text-white">
+      <div className="max-w-full mx-auto p-4 text-white">
         <Header 
+          isDMMode={isDMMode}
+          onToggleDMMode={() => setIsDMMode(!isDMMode)}
           onShowScene={() => setShowSceneModal(true)}
           paintMode={paintMode}
           onTogglePaint={() => setPaintMode(!paintMode)}
@@ -365,64 +368,91 @@ const App = () => {
           onToggleNames={() => setShowNames(!showNames)}
         />
 
-        <div className="grid grid-cols-1 xl:grid-cols-6 gap-6">
-          {/* Left Panel - Monsters */}
-          <div className="xl:col-span-1">
-            <MonsterPanel onAddMonster={handleAddMonster} />
+        {/* DM Control Panel - Only visible in DM mode */}
+        {isDMMode && (
+          <div className="mb-4 transition-all duration-300 ease-in-out">
+            <DMControlPanel
+              isCollapsed={collapsedPanels.dmControls}
+              onToggleCollapse={() => togglePanel('dmControls')}
+              gridSize={gridSize}
+              onGridSizeChange={setGridSize}
+              onAddCharacter={handleAddCharacter}
+              paintMode={paintMode}
+              selectedTerrain={selectedTerrain}
+              onSelectedTerrainChange={setSelectedTerrain}
+              customTerrainSprites={customTerrainSprites}
+              onClearTerrain={() => setTerrain({})}
+              onUpload={openUploadModal}
+            />
           </div>
+        )}
+
+        <div className="grid grid-cols-1 xl:grid-cols-6 gap-4">
+          {/* Left Panel - Monster Panel (DM Only) */}
+          {isDMMode && (
+            <div className="xl:col-span-1 transition-all duration-300 ease-in-out">
+              <MonsterPanel onAddMonster={handleAddMonster} />
+            </div>
+          )}
 
           {/* Center Panel - Battle Map */}
-          <div className="xl:col-span-3">
+          <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-3' : 'xl:col-span-4'}`}>
             <BattleMap
               gridSize={gridSize}
               onGridSizeChange={setGridSize}
               characters={characters}
-              onAddCharacter={handleAddCharacter}
+              onAddCharacter={isDMMode ? handleAddCharacter : null}
               onEditCharacter={(char) => {
-                console.log('Opening character sheet for:', char);
-                if (!char) {
-                  console.error('Character is null or undefined');
-                  return;
-                }
+                if (!isDMMode) return; // Only DM can edit
                 setEditingCharacter(char);
                 setShowCharacterModal(true);
               }}
               onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
-              onMoveCharacter={moveCharacter}
+              onMoveCharacter={isDMMode ? moveCharacter : null}
               terrain={terrain}
-              onTerrainChange={setTerrain}
+              onTerrainChange={isDMMode ? setTerrain : null}
               customTerrainSprites={customTerrainSprites}
-              paintMode={paintMode}
+              paintMode={isDMMode ? paintMode : false}
               selectedTerrain={selectedTerrain}
               onSelectedTerrainChange={setSelectedTerrain}
               showGrid={showGrid}
               gridColor={gridColor}
               showNames={showNames}
-              onUpload={openUploadModal}
+              onUpload={isDMMode ? openUploadModal : null}
+              isDMMode={isDMMode}
             />
           </div>
 
-          {/* Right Panel - Combat Tools and Chat */}
-          <div className="xl:col-span-2 space-y-6">
-            {renderRightPanel()}
-            
-            <ChatPanel
-              chatMessages={chatMessages}
-              onAddMessage={setChatMessages}
-              playerMessage={playerMessage}
-              onPlayerMessageChange={setPlayerMessage}
-              playerName={playerName}
-              onPlayerNameChange={setPlayerName}
-              characters={characters}
-              onMakeCharacterSpeak={handleMakeCharacterSpeak}
-            />
-            
-            <CombatLog
-              combatMessages={combatMessages}
-              onClearLog={clearCombatLog}
-            />
+          {/* Right Panel - Chat and Tools */}
+          <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-2' : 'xl:col-span-2'}`}>
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+              {/* Tab Navigation */}
+              <div className="border-b border-slate-700">
+                <div className="flex overflow-x-auto">
+                  {availableRightTabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveRightTab(tab.id)}
+                      className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 ${
+                        activeRightTab === tab.id
+                          ? 'bg-slate-700/50 border-blue-500 text-blue-300'
+                          : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                      }`}
+                    >
+                      <span className="mr-2">{tab.icon}</span>
+                      {tab.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tab Content */}
+              <div className="transition-all duration-200 ease-in-out">
+                {renderRightPanelContent()}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -437,12 +467,11 @@ const App = () => {
           />
         )}
 
-        {showCharacterModal && editingCharacter && (
+        {showCharacterModal && editingCharacter && isDMMode && (
           <SimpleCharacterModal
             character={editingCharacter}
             characters={characters}
             onSave={(savedCharacter) => {
-              console.log('Saving character from modal:', savedCharacter);
               updateCharacter(savedCharacter);
               setShowCharacterModal(false);
               setEditingCharacter(null);
@@ -462,7 +491,7 @@ const App = () => {
           />
         )}
 
-        {showSceneModal && (
+        {showSceneModal && isDMMode && (
           <SceneModal
             sceneImage={sceneImage}
             sceneDescription={sceneDescription}
@@ -497,7 +526,7 @@ const App = () => {
           />
         )}
 
-        {showUploadModal && (
+        {showUploadModal && isDMMode && (
           <UploadModal
             uploadType={uploadType}
             onUpload={(file, result) => {
