@@ -1,12 +1,37 @@
-// src/utils/database.js - Complete database integration
-import { neon } from '@netlify/neon';
+// src/utils/database.js - Complete database integration with correct Neon package
+import { neon } from '@neondatabase/serverless';
 
 // Initialize database connection
-const sql = neon(); // Automatically uses NETLIFY_DATABASE_URL
+let sql = null;
+
+const initializeDatabaseConnection = () => {
+  try {
+    // Get connection string from environment variables
+    const connectionString = process.env.VITE_DATABASE_URL || import.meta.env.VITE_DATABASE_URL;
+    
+    if (!connectionString) {
+      console.warn('Database connection string not found in environment variables');
+      return null;
+    }
+    
+    // Initialize the Neon serverless connection
+    sql = neon(connectionString);
+    console.log('Database connection initialized');
+    return sql;
+  } catch (error) {
+    console.error('Failed to initialize database connection:', error);
+    return null;
+  }
+};
 
 // Initialize database tables
 export const initDatabase = async () => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     // Characters table
     await sql`
       CREATE TABLE IF NOT EXISTS characters (
@@ -74,6 +99,11 @@ export const initDatabase = async () => {
 // Image operations
 export const saveImage = async (imageData, imageType = 'sprite', name = 'image') => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return null;
+    }
+
     const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // Extract mime type and size from data URL
@@ -95,8 +125,13 @@ export const saveImage = async (imageData, imageType = 'sprite', name = 'image')
 
 export const loadImage = async (imageId) => {
   try {
-    const [result] = await sql`SELECT * FROM images WHERE id = ${imageId}`;
-    return result ? result.data : null;
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return null;
+    }
+
+    const result = await sql`SELECT * FROM images WHERE id = ${imageId}`;
+    return result.length > 0 ? result[0].data : null;
   } catch (error) {
     console.error('Error loading image:', error);
     return null;
@@ -105,6 +140,11 @@ export const loadImage = async (imageId) => {
 
 export const loadImagesByType = async (imageType) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return [];
+    }
+
     const result = await sql`SELECT * FROM images WHERE type = ${imageType} ORDER BY created_at DESC`;
     return result;
   } catch (error) {
@@ -115,6 +155,11 @@ export const loadImagesByType = async (imageType) => {
 
 export const deleteImage = async (imageId) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     await sql`DELETE FROM images WHERE id = ${imageId}`;
     return true;
   } catch (error) {
@@ -126,6 +171,11 @@ export const deleteImage = async (imageId) => {
 // Character operations
 export const saveCharacter = async (character) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     await sql`
       INSERT INTO characters (id, name, data, updated_at)
       VALUES (${character.id}, ${character.name}, ${JSON.stringify(character)}, NOW())
@@ -144,6 +194,11 @@ export const saveCharacter = async (character) => {
 
 export const loadCharacters = async () => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return [];
+    }
+
     const result = await sql`SELECT * FROM characters ORDER BY updated_at DESC`;
     return result.map(row => row.data);
   } catch (error) {
@@ -154,6 +209,11 @@ export const loadCharacters = async () => {
 
 export const deleteCharacter = async (characterId) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     await sql`DELETE FROM characters WHERE id = ${characterId}`;
     return true;
   } catch (error) {
@@ -165,6 +225,11 @@ export const deleteCharacter = async (characterId) => {
 // Game session operations
 export const saveGameSession = async (sessionData) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     const sessionId = sessionData.id || 'default-session';
     await sql`
       INSERT INTO game_sessions (id, name, data, updated_at)
@@ -183,8 +248,13 @@ export const saveGameSession = async (sessionData) => {
 
 export const loadGameSession = async (sessionId = 'default-session') => {
   try {
-    const [result] = await sql`SELECT * FROM game_sessions WHERE id = ${sessionId}`;
-    return result ? result.data : null;
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return null;
+    }
+
+    const result = await sql`SELECT * FROM game_sessions WHERE id = ${sessionId}`;
+    return result.length > 0 ? result[0].data : null;
   } catch (error) {
     console.error('Error loading game session:', error);
     return null;
@@ -194,6 +264,11 @@ export const loadGameSession = async (sessionId = 'default-session') => {
 // Chat operations
 export const saveChatMessage = async (message, sessionId = 'default-session') => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     await sql`
       INSERT INTO chat_messages (session_id, message_data)
       VALUES (${sessionId}, ${JSON.stringify(message)})
@@ -207,6 +282,11 @@ export const saveChatMessage = async (message, sessionId = 'default-session') =>
 
 export const loadChatMessages = async (sessionId = 'default-session', limit = 100) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return [];
+    }
+
     const result = await sql`
       SELECT message_data FROM chat_messages 
       WHERE session_id = ${sessionId}
@@ -223,6 +303,11 @@ export const loadChatMessages = async (sessionId = 'default-session', limit = 10
 // Combat messages operations
 export const saveCombatMessage = async (message, sessionId = 'default-session') => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     await sql`
       INSERT INTO combat_messages (session_id, message_data)
       VALUES (${sessionId}, ${JSON.stringify(message)})
@@ -236,6 +321,11 @@ export const saveCombatMessage = async (message, sessionId = 'default-session') 
 
 export const loadCombatMessages = async (sessionId = 'default-session', limit = 100) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return [];
+    }
+
     const result = await sql`
       SELECT message_data FROM combat_messages 
       WHERE session_id = ${sessionId}
@@ -252,6 +342,11 @@ export const loadCombatMessages = async (sessionId = 'default-session', limit = 
 // Utility functions
 export const clearOldMessages = async (sessionId = 'default-session', daysOld = 7) => {
   try {
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return false;
+    }
+
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
     
@@ -276,16 +371,21 @@ export const clearOldMessages = async (sessionId = 'default-session', daysOld = 
 
 export const getDatabaseStats = async () => {
   try {
-    const [charCount] = await sql`SELECT COUNT(*) as count FROM characters`;
-    const [imageCount] = await sql`SELECT COUNT(*) as count FROM images`;
-    const [chatCount] = await sql`SELECT COUNT(*) as count FROM chat_messages`;
-    const [combatCount] = await sql`SELECT COUNT(*) as count FROM combat_messages`;
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) return null;
+    }
+
+    const charResult = await sql`SELECT COUNT(*) as count FROM characters`;
+    const imageResult = await sql`SELECT COUNT(*) as count FROM images`;
+    const chatResult = await sql`SELECT COUNT(*) as count FROM chat_messages`;
+    const combatResult = await sql`SELECT COUNT(*) as count FROM combat_messages`;
     
     return {
-      characters: charCount.count,
-      images: imageCount.count,
-      chatMessages: chatCount.count,
-      combatMessages: combatCount.count
+      characters: charResult[0].count,
+      images: imageResult[0].count,
+      chatMessages: chatResult[0].count,
+      combatMessages: combatResult[0].count
     };
   } catch (error) {
     console.error('Error getting database stats:', error);
@@ -296,10 +396,20 @@ export const getDatabaseStats = async () => {
 // Database health check
 export const checkDatabaseHealth = async () => {
   try {
-    const [result] = await sql`SELECT NOW() as current_time`;
+    if (!sql) {
+      sql = initializeDatabaseConnection();
+      if (!sql) {
+        return {
+          healthy: false,
+          error: 'Connection string not found'
+        };
+      }
+    }
+
+    const result = await sql`SELECT NOW() as current_time`;
     return {
       healthy: true,
-      timestamp: result.current_time
+      timestamp: result[0].current_time
     };
   } catch (error) {
     console.error('Database health check failed:', error);
