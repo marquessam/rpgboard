@@ -1,4 +1,4 @@
-// src/components/BattleMap/BattleMap.jsx - Enhanced with DM mode awareness
+// src/components/BattleMap/BattleMap.jsx - Enhanced with full player access
 import React, { useState } from 'react';
 import { Sword, Plus, Eye } from 'lucide-react';
 import CharacterToken from './CharacterToken';
@@ -56,9 +56,8 @@ const BattleMap = ({
   };
 
   const handleCharacterDrag = (character, e) => {
-    // Allow DM to move anyone, players can only move non-monsters
+    // Allow everyone to move any character (removed DM restriction)
     if (paintMode || !onMoveCharacter) return;
-    if (!isDMMode && character.isMonster) return;
     
     e.preventDefault();
     e.stopPropagation();
@@ -105,8 +104,8 @@ const BattleMap = ({
           )}
         </h2>
         
-        {/* DM-only controls */}
-        {isDMMode && onAddCharacter && (
+        {/* Character controls - Available to everyone */}
+        {onAddCharacter && (
           <div className="flex gap-3 items-center">
             <button
               onClick={onAddCharacter}
@@ -149,7 +148,7 @@ const BattleMap = ({
               showNames={showNames}
               paintMode={paintMode && isDMMode}
               isDMMode={isDMMode}
-              onMouseDown={isDMMode ? (e) => handleCharacterDrag(character, e) : undefined}
+              onMouseDown={(e) => handleCharacterDrag(character, e)} // Everyone can drag
               onClick={(e) => handleCharacterClick(character, e)}
               onMouseEnter={() => setHoveredCharacter(character)}
               onMouseLeave={() => setHoveredCharacter(null)}
@@ -161,8 +160,8 @@ const BattleMap = ({
           )}
         </div>
 
-        {/* Character Quick Actions - DM Only */}
-        {isDMMode && onEditCharacter && onMakeCharacterSpeak && (
+        {/* Character Quick Actions - Available to everyone */}
+        {onEditCharacter && onMakeCharacterSpeak && (
           <CharacterActions
             characters={characters}
             onEditCharacter={onEditCharacter}
@@ -188,11 +187,9 @@ const BattleMap = ({
                 </span>
               )}
             </span>
-            {!isDMMode && (
-              <span className="text-xs text-slate-400">
-                View only
-              </span>
-            )}
+            <span className="text-xs text-green-400">
+              Full Control Available
+            </span>
           </div>
           <div className="text-xs text-slate-400">
             AC {selectedCharacter.ac || 10} • 
@@ -207,12 +204,12 @@ const BattleMap = ({
         </div>
       )}
 
-      {/* Player Mode Notice */}
+      {/* Player Mode Notice - Updated */}
       {!isDMMode && (
-        <div className="mt-4 p-3 bg-slate-700/30 border border-slate-600 rounded-lg">
-          <div className="text-slate-300 text-sm">
-            <strong>Player View:</strong> You can view the battle map and select characters to see their stats, 
-            but you cannot edit, move, or control characters. Only the DM can make changes.
+        <div className="mt-4 p-3 bg-green-700/20 border border-green-600 rounded-lg">
+          <div className="text-green-300 text-sm">
+            <strong>Player Mode:</strong> You have full control over all characters. You can create, edit, move, 
+            delete, and manage any character. Terrain editing is DM-only.
           </div>
         </div>
       )}
