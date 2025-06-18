@@ -16,6 +16,7 @@ import ConditionsPanel from './components/Combat/ConditionsPanel';
 import SpellPanel from './components/Combat/SpellPanel';
 import LootModal from './components/Combat/LootModal';
 import DMControlPanel from './components/UI/DMControlPanel';
+import DMControlPanel from './components/UI/DMControlPanel';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
@@ -33,6 +34,8 @@ const App = () => {
   const [lootingCharacter, setLootingCharacter] = useState(null);
   const [uploadType, setUploadType] = useState('sprite');
   const [editingCharacter, setEditingCharacter] = useState(null);
+  // Current actor state (based on selected token)
+  const [currentActor, setCurrentActor] = useState(null);
   const [selectedCharacterForActions, setSelectedCharacterForActions] = useState(null);
   const [activeRightTab, setActiveRightTab] = useState('chat');
 
@@ -77,9 +80,6 @@ const App = () => {
     makeCharacterSpeak,
     closeDialogue 
   } = useDialogue();
-
-  // Player inventory state
-  const [playerInventory, setPlayerInventory] = useLocalStorage('playerInventory', []);
 
   // Chat state
   const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
@@ -213,37 +213,58 @@ const App = () => {
   };
 
   const handleCharacterSelect = (character) => {
-    if (!character) return;
+    if (!character) {
+      setCurrentActor(null);
+      setSelectedCharacterForActions(null);
+      return;
+    }
 
     const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
     const isDead = currentHp <= 0;
     
-    if (isDead && character.isMonster) {
+    // Set as current actor for living characters
+    if (!isDead) {
+      setCurrentActor(character);
+      setSelectedCharacterForActions(character);
+      
+      // Auto-populate chat name if not already set
+      if (!playerName || playerName === '') {
+        setPlayerName(character.name);
+      }
+    } else if (isDead && character.isMonster) {
       // Show loot modal for dead monsters
       setLootingCharacter(character);
       setShowLootModal(true);
-    } else if (!isDead) {
-      // Regular selection for living characters
-      setSelectedCharacterForActions(character);
     }
   };
 
   const handleTakeLoot = (lootItems) => {
-    // Add items to player inventory
-    setPlayerInventory(prev => [
-      ...prev,
-      ...lootItems.map(item => ({
-        ...item,
-        source: lootingCharacter.name,
-        dateObtained: new Date().toLocaleString(),
-        id: `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      }))
-    ]);
+    if (!currentActor) {
+      alert('Please select a character first to determine who gets the loot!');
+      return;
+    }
+
+    // Add items to the current actor's inventory
+    const updatedActor = {
+      ...currentActor,
+      inventory: [
+        ...(currentActor.inventory || []),
+        ...lootItems.map(item => ({
+          ...item,
+          source: lootingCharacter.name,
+          dateObtained: new Date().toLocaleString(),
+          id: `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }))
+      ]
+    };
+
+    updateCharacter(updatedActor);
+    setCurrentActor(updatedActor);
 
     // Add loot to combat log
     setCombatMessages(prev => [...prev, {
       type: 'loot',
-      text: `Looted ${lootItems.length} items from ${lootingCharacter.name}`,
+      text: `${currentActor.name} looted ${lootItems.length} items from ${lootingCharacter.name}`,
       items: lootItems.map(item => `${item.name} x${item.actualQuantity}`),
       timestamp: new Date().toLocaleTimeString()
     }]);
@@ -258,7 +279,7 @@ const App = () => {
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
-      text: `Added ${lootItems.length} items to inventory from ${lootingCharacter.name}`,
+      text: `${currentActor.name} added ${lootItems.length} items to their inventory from ${lootingCharacter.name}`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   };
@@ -298,48 +319,65 @@ const App = () => {
     }));
   };
 
-  // Define which panels are DM-only
-  const dmOnlyTabs = ['actions', 'conditions', 'spells', 'initiative'];
-  const availableRightTabs = [
-    { id: 'chat', name: 'Chat', icon: '💬', playerVisible: true },
-    { id: 'actions', name: 'Actions', icon: '⚔️', playerVisible: false },
-    { id: 'conditions', name: 'Conditions', icon: '🎭', playerVisible: false },
-    { id: 'spells', name: 'Spells', icon: '✨', playerVisible: false },
-    { id: 'initiative', name: 'Initiative', icon: '🎲', playerVisible: false },
-    { id: 'log', name: 'Combat Log', icon: '📜', playerVisible: true }
-  ].filter(tab => isDMMode || tab.playerVisible);
+  // Define which panels are available to everyone vs DM-only
+  const sharedTabs = ['actions', 'conditions', 'spells']; // Everyone gets these
+  const dmOnlyTabs = ['initiative']; // Only DM gets these
+  const availableSharedTabs = [
+    { id: 'actions', name: 'Actions', icon: '⚔️' },
+    { id: 'conditions', name: 'Conditions', icon: '🎭' },
+    { id: 'spells', name: 'Spells', icon: '✨' }
+  ];
+  const availableDMTabs = [
+    { id: 'initiative', name: 'Initiative', icon: '🎲' }
+  ];
 
-  const renderDMToolsContent = () => {
+  const renderCharacterToolsContent = () => {
     switch (activeRightTab) {
       case 'actions':
         return (
           <ActionPanel
-            selectedCharacter={selectedCharacterForActions}
+            selectedCharacter={currentActor}
             characters={characters}
             onAttack={handleAttack}
-            onClearSelection={() => setSelectedCharacterForActions(null)}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
           />
         );
       case 'conditions':
         return (
           <ConditionsPanel
-            selectedCharacter={selectedCharacterForActions}
+            selectedCharacter={currentActor}
             onAddCondition={addCondition}
             onRemoveCondition={removeCondition}
-            onClearSelection={() => setSelectedCharacterForActions(null)}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
           />
         );
       case 'spells':
         return (
           <SpellPanel
-            selectedCharacter={selectedCharacterForActions}
+            selectedCharacter={currentActor}
             characters={characters}
             onCastSpell={handleCastSpell}
             onAddSpell={addSpellToCharacter}
             onRemoveSpell={removeSpellFromCharacter}
-            onClearSelection={() => setSelectedCharacterForActions(null)}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
           />
         );
+      default:
+        return null;
+    }
+  };
+
+  const renderDMToolsContent = () => {
+    switch (activeRightTab) {
       case 'initiative':
         return (
           <InitiativeTracker
@@ -412,13 +450,7 @@ const App = () => {
               onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
-              onMoveCharacter={isDMMode ? moveCharacter : ((id, x, y) => {
-                // Players can only move non-monsters
-                const character = characters.find(c => c.id === id);
-                if (character && !character.isMonster) {
-                  moveCharacter(id, x, y);
-                }
-              })}
+              onMoveCharacter={moveCharacter}
               terrain={terrain}
               onTerrainChange={isDMMode ? setTerrain : null}
               customTerrainSprites={customTerrainSprites}
@@ -433,37 +465,86 @@ const App = () => {
             />
           </div>
 
-          {/* Right Panel - Split between Tools and Chat/Log */}
+          {/* Right Panel - Character Tools and Chat/Log */}
           <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-2' : 'xl:col-span-2'} space-y-4`}>
             
-            {/* Combat Tools Panel - DM Only */}
-            {isDMMode && (
+            {/* Character Control Panel - Everyone Gets This */}
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+              <div className="p-4 border-b border-slate-700">
+                <h3 className="text-lg font-bold text-slate-100 flex items-center">
+                  ⚡ Character Controls
+                  {currentActor && (
+                    <span className="ml-3 text-sm bg-blue-500/20 text-blue-300 px-2 py-1 rounded">
+                      Acting as: {currentActor.name}
+                    </span>
+                  )}
+                  {!currentActor && (
+                    <span className="ml-3 text-sm bg-slate-500/20 text-slate-400 px-2 py-1 rounded">
+                      No character selected
+                    </span>
+                  )}
+                </h3>
+              </div>
+              
+              {/* Tab Navigation */}
+              <div className="border-b border-slate-700">
+                <div className="flex overflow-x-auto">
+                  {availableSharedTabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveRightTab(tab.id)}
+                      className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 ${
+                        activeRightTab === tab.id
+                          ? 'bg-slate-700/50 border-blue-500 text-blue-300'
+                          : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                      }`}
+                    >
+                      <span className="mr-2">{tab.icon}</span>
+                      {tab.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tab Content */}
+              <div className="transition-all duration-200 ease-in-out">
+                {renderCharacterToolsContent()}
+              </div>
+            </div>
+
+            {/* DM Tools Panel - DM Only */}
+            {isDMMode && availableDMTabs.length > 0 && (
               <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-                {/* Tab Navigation */}
+                <div className="p-4 border-b border-slate-700">
+                  <h3 className="text-lg font-bold text-slate-100 flex items-center">
+                    🎲 DM Tools
+                    <span className="ml-3 text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded">
+                      DM Only
+                    </span>
+                  </h3>
+                </div>
+                
+                {/* DM Tab Navigation */}
                 <div className="border-b border-slate-700">
                   <div className="flex overflow-x-auto">
-                    {dmOnlyTabs.map(tab => {
-                      const tabInfo = availableRightTabs.find(t => t.id === tab);
-                      if (!tabInfo) return null;
-                      return (
-                        <button
-                          key={tab}
-                          onClick={() => setActiveRightTab(tab)}
-                          className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 ${
-                            activeRightTab === tab
-                              ? 'bg-slate-700/50 border-blue-500 text-blue-300'
-                              : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
-                          }`}
-                        >
-                          <span className="mr-2">{tabInfo.icon}</span>
-                          {tabInfo.name}
-                        </button>
-                      );
-                    })}
+                    {availableDMTabs.map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveRightTab(tab.id)}
+                        className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 ${
+                          activeRightTab === tab.id
+                            ? 'bg-slate-700/50 border-red-500 text-red-300'
+                            : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                        }`}
+                      >
+                        <span className="mr-2">{tab.icon}</span>
+                        {tab.name}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {/* Tab Content */}
+                {/* DM Tab Content */}
                 <div className="transition-all duration-200 ease-in-out">
                   {renderDMToolsContent()}
                 </div>
@@ -479,7 +560,7 @@ const App = () => {
                     onClick={() => setActiveRightTab('chat')}
                     className={`px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 flex-1 ${
                       activeRightTab === 'chat'
-                        ? 'bg-slate-700/50 border-blue-500 text-blue-300'
+                        ? 'bg-slate-700/50 border-green-500 text-green-300'
                         : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
                     }`}
                   >
@@ -490,7 +571,7 @@ const App = () => {
                     onClick={() => setActiveRightTab('log')}
                     className={`px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 flex-1 ${
                       activeRightTab === 'log'
-                        ? 'bg-slate-700/50 border-blue-500 text-blue-300'
+                        ? 'bg-slate-700/50 border-green-500 text-green-300'
                         : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
                     }`}
                   >
@@ -518,9 +599,16 @@ const App = () => {
                     characters={characters}
                     onMakeCharacterSpeak={handleMakeCharacterSpeak}
                     autoScroll={false}
-                    playerInventory={playerInventory}
+                    currentActor={currentActor}
                     onRemoveInventoryItem={(index) => {
-                      setPlayerInventory(prev => prev.filter((_, i) => i !== index));
+                      if (currentActor && currentActor.inventory) {
+                        const updatedActor = {
+                          ...currentActor,
+                          inventory: currentActor.inventory.filter((_, i) => i !== index)
+                        };
+                        updateCharacter(updatedActor);
+                        setCurrentActor(updatedActor);
+                      }
                     }}
                   />
                 )}
@@ -553,16 +641,22 @@ const App = () => {
             isDMMode={isDMMode}
             onSave={(savedCharacter) => {
               updateCharacter(savedCharacter);
+              // Update current actor if it's the same character
+              if (currentActor && currentActor.id === savedCharacter.id) {
+                setCurrentActor(savedCharacter);
+              }
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
             onDelete={(characterId) => {
-              // Only DM can delete, or players can delete their own non-monster characters
-              if (isDMMode || !editingCharacter.isMonster) {
-                deleteCharacter(characterId);
-                setShowCharacterModal(false);
-                setEditingCharacter(null);
+              deleteCharacter(characterId);
+              // Clear current actor if it was deleted
+              if (currentActor && currentActor.id === characterId) {
+                setCurrentActor(null);
+                setSelectedCharacterForActions(null);
               }
+              setShowCharacterModal(false);
+              setEditingCharacter(null);
             }}
             onClose={() => {
               setShowCharacterModal(false);
