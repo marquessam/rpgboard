@@ -1,4 +1,4 @@
-// src/App.jsx - Enhanced with DM/Player mode separation and polished UI
+// src/App.jsx - Enhanced with full player access and improved looting
 import React, { useState } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -237,17 +237,29 @@ const App = () => {
     }
   };
 
+  // Updated loot handling to use currentActor properly
   const handleTakeLoot = (lootItems) => {
-    if (!currentActor) {
-      alert('Please select a character first to determine who gets the loot!');
-      return;
+    // If no character is selected, try to use the first living non-monster character
+    let receivingCharacter = currentActor;
+    
+    if (!receivingCharacter || (receivingCharacter.hp !== undefined ? receivingCharacter.hp : receivingCharacter.maxHp) <= 0) {
+      // Find the first living non-monster character
+      receivingCharacter = characters.find(char => {
+        const hp = char.hp !== undefined ? char.hp : char.maxHp;
+        return hp > 0 && !char.isMonster;
+      });
+      
+      if (!receivingCharacter) {
+        alert('No living character available to receive loot! Please select a living character first.');
+        return;
+      }
     }
 
-    // Add items to the current actor's inventory
-    const updatedActor = {
-      ...currentActor,
+    // Add items to the receiving character's inventory
+    const updatedCharacter = {
+      ...receivingCharacter,
       inventory: [
-        ...(currentActor.inventory || []),
+        ...(receivingCharacter.inventory || []),
         ...lootItems.map(item => ({
           ...item,
           source: lootingCharacter.name,
@@ -257,13 +269,17 @@ const App = () => {
       ]
     };
 
-    updateCharacter(updatedActor);
-    setCurrentActor(updatedActor);
+    updateCharacter(updatedCharacter);
+    
+    // Update current actor if it's the same character
+    if (currentActor && currentActor.id === receivingCharacter.id) {
+      setCurrentActor(updatedCharacter);
+    }
 
     // Add loot to combat log
     setCombatMessages(prev => [...prev, {
       type: 'loot',
-      text: `${currentActor.name} looted ${lootItems.length} items from ${lootingCharacter.name}`,
+      text: `${receivingCharacter.name} looted ${lootItems.length} items from ${lootingCharacter.name}`,
       items: lootItems.map(item => `${item.name} x${item.actualQuantity}`),
       timestamp: new Date().toLocaleTimeString()
     }]);
@@ -278,7 +294,7 @@ const App = () => {
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
-      text: `${currentActor.name} added ${lootItems.length} items to their inventory from ${lootingCharacter.name}`,
+      text: `${receivingCharacter.name} added ${lootItems.length} items to their inventory from ${lootingCharacter.name}`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   };
@@ -440,9 +456,8 @@ const App = () => {
               gridSize={gridSize}
               onGridSizeChange={setGridSize}
               characters={characters}
-              onAddCharacter={isDMMode ? handleAddCharacter : null}
+              onAddCharacter={handleAddCharacter} // Everyone can add characters
               onEditCharacter={(char) => {
-                if (!isDMMode) return; // Only DM can edit
                 setEditingCharacter(char);
                 setShowCharacterModal(true);
               }}
@@ -451,7 +466,7 @@ const App = () => {
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
               onMoveCharacter={moveCharacter}
               terrain={terrain}
-              onTerrainChange={isDMMode ? setTerrain : null}
+              onTerrainChange={isDMMode ? setTerrain : null} // Terrain editing still DM-only
               customTerrainSprites={customTerrainSprites}
               paintMode={isDMMode ? paintMode : false}
               selectedTerrain={selectedTerrain}
@@ -661,7 +676,7 @@ const App = () => {
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
-            onUpload={isDMMode ? openUploadModal : null}
+            onUpload={openUploadModal} // Everyone can upload
             onAttack={handleAttack}
             onCastSpell={handleCastSpell}
           />
@@ -702,7 +717,7 @@ const App = () => {
           />
         )}
 
-        {showUploadModal && isDMMode && (
+        {showUploadModal && (
           <UploadModal
             uploadType={uploadType}
             onUpload={(file, result) => {
