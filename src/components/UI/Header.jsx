@@ -1,8 +1,10 @@
-// src/components/UI/Header.jsx
+// src/components/UI/Header.jsx - Enhanced with DM/Player mode and better organization
 import React from 'react';
-import { Image, Paintbrush, LayoutGrid, Users } from 'lucide-react';
+import { Image, Paintbrush, LayoutGrid, Users, Settings, Eye, EyeOff } from 'lucide-react';
 
 const Header = ({
+  isDMMode,
+  onToggleDMMode,
   onShowScene,
   paintMode,
   onTogglePaint,
@@ -14,63 +16,117 @@ const Header = ({
   onToggleNames
 }) => {
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-4 mb-6 shadow-2xl">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
-          ⚔️ RPG Battle Tool
-        </h1>
-        <div className="flex gap-3">
-          <button
-            onClick={onShowScene}
-            className="bg-purple-500 hover:bg-purple-600 border border-purple-400 px-4 py-2 rounded-lg transition-all duration-200 font-medium text-white shadow-lg shadow-purple-500/25"
-          >
-            <Image size={16} className="inline mr-2" />
-            Show Scene
-          </button>
-          <button
-            onClick={onTogglePaint}
-            className={`px-4 py-2 rounded-lg border transition-all duration-200 font-medium ${
-              paintMode 
-                ? 'bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/25' 
-                : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500'
-            }`}
-          >
-            <Paintbrush size={16} className="inline mr-2" />
-            {paintMode ? 'Exit Paint' : 'Paint Terrain'}
-          </button>
-          <button
-            onClick={onToggleGrid}
-            className={`px-4 py-2 rounded-lg border transition-all duration-200 font-medium ${
-              showGrid 
-                ? 'bg-blue-500 border-blue-400 text-white shadow-lg shadow-blue-500/25' 
-                : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500'
-            }`}
-          >
-            <LayoutGrid size={16} className="inline mr-2" />
-            Grid
-          </button>
-          <select
-            value={gridColor}
-            onChange={(e) => onGridColorChange(e.target.value)}
-            className="px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-            disabled={!showGrid}
-          >
-            <option value="white">White Grid</option>
-            <option value="grey">Grey Grid</option>
-            <option value="black">Black Grid</option>
-          </select>
+    <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-4 mb-4 shadow-2xl">
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
+        
+        {/* Title and Mode Toggle */}
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl lg:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+            ⚔️ RPG Battle Tool
+          </h1>
+          
+          {/* DM/Player Mode Toggle */}
+          <div className="flex items-center gap-2 bg-slate-700/50 rounded-lg p-1 border border-slate-600">
+            <button
+              onClick={onToggleDMMode}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                isDMMode
+                  ? 'bg-red-500 text-white shadow-lg shadow-red-500/25'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-600'
+              }`}
+            >
+              <Settings size={16} />
+              DM Mode
+            </button>
+            <button
+              onClick={onToggleDMMode}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                !isDMMode
+                  ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-600'
+              }`}
+            >
+              <Users size={16} />
+              Player
+            </button>
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-wrap gap-3 items-center">
+          
+          {/* DM-only controls */}
+          {isDMMode && (
+            <>
+              <button
+                onClick={onShowScene}
+                className="bg-purple-500 hover:bg-purple-600 border border-purple-400 px-4 py-2 rounded-lg transition-all duration-200 font-medium text-white shadow-lg shadow-purple-500/25 hover:scale-105"
+              >
+                <Image size={16} className="inline mr-2" />
+                Show Scene
+              </button>
+              
+              <button
+                onClick={onTogglePaint}
+                className={`px-4 py-2 rounded-lg border transition-all duration-200 font-medium hover:scale-105 ${
+                  paintMode 
+                    ? 'bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/25' 
+                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500'
+                }`}
+              >
+                <Paintbrush size={16} className="inline mr-2" />
+                {paintMode ? 'Exit Paint' : 'Paint Terrain'}
+              </button>
+            </>
+          )}
+          
+          {/* Shared view controls */}
+          <div className="flex items-center gap-2 bg-slate-700/50 rounded-lg p-1 border border-slate-600">
+            <button
+              onClick={onToggleGrid}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:scale-105 ${
+                showGrid 
+                  ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' 
+                  : 'text-slate-300 hover:text-white hover:bg-slate-600'
+              }`}
+            >
+              <LayoutGrid size={16} />
+              Grid
+            </button>
+            
+            {showGrid && (
+              <select
+                value={gridColor}
+                onChange={(e) => onGridColorChange(e.target.value)}
+                className="px-2 py-1 bg-slate-600 border border-slate-500 rounded text-white text-sm font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+              >
+                <option value="white">White</option>
+                <option value="grey">Grey</option>
+                <option value="black">Black</option>
+              </select>
+            )}
+          </div>
+          
           <button
             onClick={onToggleNames}
-            className={`px-4 py-2 rounded-lg border transition-all duration-200 font-medium ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all duration-200 font-medium hover:scale-105 ${
               showNames 
                 ? 'bg-green-500 border-green-400 text-white shadow-lg shadow-green-500/25' 
                 : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500'
             }`}
           >
-            <Users size={16} className="inline mr-2" />
-            Names
+            {showNames ? <Eye size={16} /> : <EyeOff size={16} />}
+            <span className="hidden sm:inline">Names</span>
           </button>
         </div>
+      </div>
+      
+      {/* Mode indicator */}
+      <div className="mt-3 flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${isDMMode ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+        <span className="text-xs text-slate-400">
+          {isDMMode ? 'Dungeon Master Mode - All controls available' : 'Player Mode - View only with chat access'}
+        </span>
       </div>
     </div>
   );
