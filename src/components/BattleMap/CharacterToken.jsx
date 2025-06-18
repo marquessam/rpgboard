@@ -1,4 +1,4 @@
-// src/components/BattleMap/CharacterToken.jsx - Updated with selection
+// src/components/BattleMap/CharacterToken.jsx - Enhanced with DM mode awareness
 import React from 'react';
 import { getHealthColor, getStatModifier } from '../../utils/helpers';
 
@@ -10,35 +10,44 @@ const CharacterToken = ({
   isSelected,
   showNames,
   paintMode,
+  isDMMode = true,
   onMouseDown,
   onClick,
   onMouseEnter,
   onMouseLeave
 }) => {
   const handleMouseDown = (e) => {
-    // Only allow interaction if:
-    // 1. Character is alive, OR
-    // 2. Character is dead monster and not looted yet
-    const canInteract = !isDead || (isDead && character.isMonster && !character.looted);
+    // Only allow interaction based on DM mode and character state
+    const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
+    const isDead = currentHp <= 0;
+    const canInteract = isDMMode || (!isDead || (isDead && character.isMonster && !character.looted));
     
     if (canInteract && onClick) {
       onClick(e);
     }
-    if (canInteract && onMouseDown) {
+    if (canInteract && onMouseDown && isDMMode) {
       onMouseDown(e);
     }
   };
 
   // Calculate token size based on grid size
-  const tokenSize = Math.max(24, Math.min(64, (800 / gridSize) * 0.8)); // Scale between 24px and 64px
+  const tokenSize = Math.max(24, Math.min(64, (800 / gridSize) * 0.8));
   const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
   const isDead = currentHp <= 0;
-  const canInteract = !isDead || (isDead && character.isMonster && !character.looted);
+  const canInteract = isDMMode || (!isDead || (isDead && character.isMonster && !character.looted));
+
+  // Determine cursor style
+  const getCursorStyle = () => {
+    if (paintMode) return 'pointer-events-none';
+    if (!canInteract) return 'cursor-default';
+    if (isDMMode && !isDead) return 'cursor-move';
+    return 'cursor-pointer';
+  };
 
   return (
     <div
       className={`absolute transform -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ${
-        paintMode ? 'pointer-events-none' : (canInteract ? 'cursor-pointer' : 'cursor-default')
+        getCursorStyle()
       } ${isSelected ? 'z-30' : ''} ${
         !isDead && canInteract ? 'hover:scale-110' : ''
       } ${isDead ? 'opacity-75' : ''}`}
@@ -50,7 +59,7 @@ const CharacterToken = ({
       onMouseDown={handleMouseDown}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      title={`${character.name}${isDead ? ' (Dead)' : ''}`}
+      title={`${character.name}${isDead ? ' (Dead)' : ''}${!isDMMode ? ' (View Only)' : ''}`}
     >
       {/* Selection Ring */}
       {isSelected && !isDead && (
@@ -80,6 +89,7 @@ const CharacterToken = ({
         </div>
       )}
 
+      {/* Character Image/Token */}
       {character.sprite ? (
         <img
           src={character.sprite}
@@ -125,6 +135,20 @@ const CharacterToken = ({
         </div>
       )}
 
+      {/* Player Mode Indicator */}
+      {!isDMMode && !character.isMonster && (
+        <div 
+          className="absolute bg-blue-500 text-white text-xs px-1 rounded-full border border-white"
+          style={{
+            top: `${-tokenSize * 0.1}px`,
+            left: `${-tokenSize * 0.1}px`,
+            fontSize: `${Math.max(8, tokenSize * 0.2)}px`
+          }}
+        >
+          P
+        </div>
+      )}
+
       {/* Low HP Indicator */}
       {!isDead && currentHp / character.maxHp <= 0.25 && (
         <div 
@@ -138,22 +162,23 @@ const CharacterToken = ({
         </div>
       )}
 
-      {/* Death Indicator */}
-      {isDead && (
+      {/* Conditions Indicator */}
+      {character.conditions && character.conditions.length > 0 && !isDead && (
         <div 
-          className="absolute left-1/2 transform -translate-x-1/2 text-red-500 font-bold"
+          className="absolute right-0 transform translate-x-1/2 text-yellow-500"
           style={{
-            top: `${-tokenSize * 0.25}px`,
+            top: `${-tokenSize * 0.2}px`,
             fontSize: `${Math.max(10, tokenSize * 0.25)}px`
           }}
         >
-          DEAD
+          ✨
         </div>
       )}
 
+      {/* Names */}
       {showNames && (
         <div 
-          className={`absolute left-1/2 transform -translate-x-1/2 font-bold px-2 py-1 rounded shadow-lg border whitespace-nowrap ${
+          className={`absolute left-1/2 transform -translate-x-1/2 font-bold px-2 py-1 rounded shadow-lg border whitespace-nowrap transition-all duration-200 ${
             isSelected ? 'border-blue-400' : 'border-white'
           } ${isDead ? 'bg-red-800 text-red-200' : ''}`}
           style={{
@@ -178,11 +203,12 @@ const CharacterToken = ({
         </div>
       )}
       
+      {/* Hover Info */}
       {isHovered && !isSelected && (
         <div 
           className="absolute left-1/2 transform -translate-x-1/2 bg-slate-800 border border-slate-600 rounded p-2 shadow-lg z-50 whitespace-nowrap"
           style={{
-            top: `${-tokenSize - 60}px`
+            top: `${-tokenSize - 80}px`
           }}
         >
           <div className="text-white text-xs font-bold mb-1">
@@ -191,6 +217,7 @@ const CharacterToken = ({
               <span className="ml-1 text-red-300">(CR {character.cr})</span>
             )}
             {isDead && <span className="ml-1 text-red-400">(DEAD)</span>}
+            {!isDMMode && <span className="ml-1 text-blue-400">(View Only)</span>}
           </div>
           <div className="text-white text-xs mb-1">
             AC: {character.ac || (10 + getStatModifier(character.dex))} • 
@@ -205,24 +232,21 @@ const CharacterToken = ({
               }}
             />
           </div>
-          {!isDead && character.isMonster && (
+          
+          {/* Interaction hints */}
+          {isDMMode && !isDead && character.isMonster && (
             <div className="text-yellow-300 text-xs mt-1">
-              Click to select for actions
+              Click to select • Drag to move
             </div>
           )}
-          {isDead && character.isMonster && !character.looted && (
+          {isDMMode && isDead && character.isMonster && !character.looted && (
             <div className="text-yellow-300 text-xs mt-1">
               Click to search for loot
             </div>
           )}
-          {isDead && character.isMonster && character.looted && (
-            <div className="text-slate-400 text-xs mt-1">
-              Already looted
-            </div>
-          )}
-          {isDead && !character.isMonster && (
-            <div className="text-red-300 text-xs mt-1">
-              This character has been defeated
+          {!isDMMode && (
+            <div className="text-blue-300 text-xs mt-1">
+              Click to view details
             </div>
           )}
         </div>
