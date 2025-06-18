@@ -1,4 +1,4 @@
-// src/utils/constants.js - Updated with D&D 5e data
+// src/utils/constants.js - Updated with currency support
 export const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981', '#06b6d4', '#84cc16'];
 
 export const borderColors = ['#ffffff', '#000000', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#8b5cf6', '#ec4899', '#fbbf24', '#10b981', '#64748b'];
@@ -165,6 +165,14 @@ export const newCharacterTemplate = {
   actions: [],
   spells: [],
   conditions: [],
+  // Currency
+  currency: {
+    copper: 0,
+    silver: 0,
+    gold: 0
+  },
+  // Inventory (non-currency items)
+  inventory: [],
   // Skills and saves (will be expanded later)
   skillProficiencies: [],
   saveProficiencies: [],
@@ -201,6 +209,19 @@ export const creatureTypes = [
   'fey', 'fiend', 'giant', 'humanoid', 'monstrosity', 'ooze',
   'plant', 'undead'
 ];
+
+// Currency constants
+export const currencyTypes = {
+  copper: { name: 'Copper Pieces', abbreviation: 'cp', value: 1, color: '#d97706' },
+  silver: { name: 'Silver Pieces', abbreviation: 'sp', value: 10, color: '#6b7280' },
+  gold: { name: 'Gold Pieces', abbreviation: 'gp', value: 100, color: '#f59e0b' }
+};
+
+export const currencyConversionRates = {
+  copper: 1,
+  silver: 10,
+  gold: 100
+};
 
 // Range and distance utilities
 export const calculateDistance = (char1, char2) => {
@@ -249,6 +270,7 @@ export const getRangeDescription = (actionRange) => {
   
   return actionRange || 'Unknown range';
 };
+
 export const commonWeapons = {
   dagger: {
     name: 'Dagger',
