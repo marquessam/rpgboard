@@ -238,7 +238,7 @@ const App = () => {
     }
   };
 
-  // Updated loot handling to use currentActor properly
+  // Updated loot handling to use currentActor properly and handle currency
   const handleTakeLoot = (lootItems) => {
     // If no character is selected, try to use the first living non-monster character
     let receivingCharacter = currentActor;
@@ -256,18 +256,41 @@ const App = () => {
       }
     }
 
-    // Add items to the receiving character's inventory
-    const updatedCharacter = {
-      ...receivingCharacter,
-      inventory: [
-        ...(receivingCharacter.inventory || []),
-        ...lootItems.map(item => ({
+    // Separate currency from regular items
+    const regularItems = [];
+    const currencyToAdd = { copper: 0, silver: 0, gold: 0 };
+
+    lootItems.forEach(item => {
+      const itemName = item.name.toLowerCase();
+      if (itemName.includes('copper pieces') || itemName.includes('copper coins') || itemName === 'cp') {
+        currencyToAdd.copper += item.actualQuantity || 1;
+      } else if (itemName.includes('silver pieces') || itemName.includes('silver coins') || itemName === 'sp') {
+        currencyToAdd.silver += item.actualQuantity || 1;
+      } else if (itemName.includes('gold pieces') || itemName.includes('gold coins') || itemName === 'gp') {
+        currencyToAdd.gold += item.actualQuantity || 1;
+      } else {
+        regularItems.push({
           ...item,
           source: lootingCharacter.name,
           dateObtained: new Date().toLocaleString(),
           id: `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-        }))
-      ]
+        });
+      }
+    });
+
+    // Update character with new items and currency
+    const currentCurrency = receivingCharacter.currency || { copper: 0, silver: 0, gold: 0 };
+    const updatedCharacter = {
+      ...receivingCharacter,
+      inventory: [
+        ...(receivingCharacter.inventory || []),
+        ...regularItems
+      ],
+      currency: {
+        copper: currentCurrency.copper + currencyToAdd.copper,
+        silver: currentCurrency.silver + currencyToAdd.silver,
+        gold: currentCurrency.gold + currencyToAdd.gold
+      }
     };
 
     updateCharacter(updatedCharacter);
@@ -278,9 +301,17 @@ const App = () => {
     }
 
     // Add loot to combat log
+    const lootSummary = [];
+    if (regularItems.length > 0) {
+      lootSummary.push(`${regularItems.length} items`);
+    }
+    if (currencyToAdd.copper > 0) lootSummary.push(`${currencyToAdd.copper} cp`);
+    if (currencyToAdd.silver > 0) lootSummary.push(`${currencyToAdd.silver} sp`);
+    if (currencyToAdd.gold > 0) lootSummary.push(`${currencyToAdd.gold} gp`);
+
     setCombatMessages(prev => [...prev, {
       type: 'loot',
-      text: `${receivingCharacter.name} looted ${lootItems.length} items from ${lootingCharacter.name}`,
+      text: `${receivingCharacter.name} looted ${lootSummary.join(', ')} from ${lootingCharacter.name}`,
       items: lootItems.map(item => `${item.name} x${item.actualQuantity}`),
       timestamp: new Date().toLocaleTimeString()
     }]);
@@ -295,7 +326,7 @@ const App = () => {
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
-      text: `${receivingCharacter.name} added ${lootItems.length} items to their inventory from ${lootingCharacter.name}`,
+      text: `${receivingCharacter.name} obtained ${lootSummary.join(', ')} from ${lootingCharacter.name}`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   };
@@ -407,6 +438,16 @@ const App = () => {
                 const updatedActor = {
                   ...currentActor,
                   inventory: [...(currentActor.inventory || []), item]
+                };
+                updateCharacter(updatedActor);
+                setCurrentActor(updatedActor);
+              }
+            }}
+            onUpdateCharacterCurrency={(newCurrency) => {
+              if (currentActor) {
+                const updatedActor = {
+                  ...currentActor,
+                  currency: newCurrency
                 };
                 updateCharacter(updatedActor);
                 setCurrentActor(updatedActor);
