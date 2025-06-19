@@ -1,4 +1,4 @@
-// src/App.jsx - Enhanced with debugging and better upload feedback
+// src/App.jsx - Complete application with all features restored
 import React, { useState, useEffect } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -106,6 +106,14 @@ const App = () => {
   const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
   const [playerMessage, setPlayerMessage] = useState('');
   const [playerName, setPlayerName] = useState('');
+
+  // Toggle panels function
+  const togglePanel = (panelName) => {
+    setCollapsedPanels(prev => ({
+      ...prev,
+      [panelName]: !prev[panelName]
+    }));
+  };
 
   // Load game state from database on startup
   useEffect(() => {
@@ -320,13 +328,10 @@ const App = () => {
         setSceneImage(finalResult);
       }
       
-      // Don't automatically close the modal - let the UploadModal handle it
-      // setShowUploadModal(false);
-      
     } catch (error) {
       console.error('💥 Upload processing failed:', error);
       setUploadError(`Upload failed: ${error.message}`);
-      throw error; // Re-throw so UploadModal can handle it
+      throw error;
     }
   };
 
@@ -360,8 +365,73 @@ const App = () => {
     }
   };
 
-  // Rest of the component remains the same...
-  // [Previous implementation for combat, UI, etc.]
+  // Combat functions
+  const handleAttack = (attackResult, targetId, damage) => {
+    if (damage > 0) {
+      damageCharacter(targetId, damage);
+    }
+    
+    setCombatMessages(prev => [...prev, {
+      ...attackResult,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  };
+
+  const handleLootCharacter = (deadCharacter) => {
+    setLootingCharacter(deadCharacter);
+    setShowLootModal(true);
+  };
+
+  const handleTakeLoot = (items) => {
+    if (currentActor && items.length > 0) {
+      // Add items to current actor's inventory
+      const updatedActor = {
+        ...currentActor,
+        inventory: [...(currentActor.inventory || []), ...items.map(item => ({
+          ...item,
+          source: `Looted from ${lootingCharacter.name}`,
+          dateObtained: new Date().toLocaleString()
+        }))]
+      };
+      
+      // Update currency
+      const currencyItems = items.filter(item => item.type === 'currency');
+      if (currencyItems.length > 0) {
+        const newCurrency = { ...(currentActor.currency || { copper: 0, silver: 0, gold: 0 }) };
+        
+        currencyItems.forEach(item => {
+          const name = item.name.toLowerCase();
+          if (name.includes('gold')) {
+            newCurrency.gold += item.actualQuantity;
+          } else if (name.includes('silver')) {
+            newCurrency.silver += item.actualQuantity;
+          } else if (name.includes('copper')) {
+            newCurrency.copper += item.actualQuantity;
+          }
+        });
+        
+        updatedActor.currency = newCurrency;
+      }
+      
+      updateCharacter(updatedActor);
+      setCurrentActor(updatedActor);
+      
+      // Mark the dead character as looted
+      const lootedCharacter = { ...lootingCharacter, looted: true };
+      updateCharacter(lootedCharacter);
+      
+      // Add to combat log
+      setCombatMessages(prev => [...prev, {
+        type: 'loot',
+        text: `${currentActor.name} looted items from ${lootingCharacter.name}`,
+        items: items.map(item => `${item.name} x${item.actualQuantity || 1}`),
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    }
+    
+    setShowLootModal(false);
+    setLootingCharacter(null);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -422,7 +492,237 @@ const App = () => {
           </div>
         )}
 
-        {/* Upload Modal with Enhanced Feedback */}
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+          
+          {/* Left Panel - Battle Map */}
+          <div className="xl:col-span-2">
+            <BattleMap
+              gridSize={gridSize}
+              onGridSizeChange={setGridSize}
+              characters={characters}
+              onAddCharacter={handleAddCharacter}
+              onEditCharacter={(char) => {
+                setEditingCharacter(char);
+                setShowCharacterModal(true);
+              }}
+              onSelectCharacter={(char) => {
+                setCurrentActor(char);
+                setSelectedCharacterForActions(char);
+              }}
+              selectedCharacter={selectedCharacterForActions}
+              onMakeCharacterSpeak={handleMakeCharacterSpeak}
+              onMoveCharacter={moveCharacter}
+              terrain={terrain}
+              onTerrainChange={setTerrain}
+              customTerrainSprites={customTerrainSprites}
+              paintMode={paintMode}
+              selectedTerrain={selectedTerrain}
+              onSelectedTerrainChange={setSelectedTerrain}
+              showGrid={showGrid}
+              gridColor={gridColor}
+              showNames={showNames}
+              onUpload={openUploadModal}
+              isDMMode={isDMMode}
+            />
+          </div>
+
+          {/* Center Panel - Monster/Action/Combat depending on mode */}
+          <div className="xl:col-span-1">
+            {isDMMode ? (
+              <div className="space-y-4">
+                <MonsterPanel onAddMonster={handleAddMonster} />
+                
+                {selectedCharacterForActions && (
+                  <ActionPanel
+                    selectedCharacter={selectedCharacterForActions}
+                    characters={characters}
+                    onAttack={handleAttack}
+                    onClearSelection={() => setSelectedCharacterForActions(null)}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {selectedCharacterForActions && (
+                  <ActionPanel
+                    selectedCharacter={selectedCharacterForActions}
+                    characters={characters}
+                    onAttack={handleAttack}
+                    onClearSelection={() => setSelectedCharacterForActions(null)}
+                  />
+                )}
+                
+                <ConditionsPanel
+                  selectedCharacter={selectedCharacterForActions}
+                  onAddCondition={addCondition}
+                  onRemoveCondition={removeCondition}
+                  onClearSelection={() => setSelectedCharacterForActions(null)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Right Panel - Chat & Tabs */}
+          <div className="xl:col-span-1">
+            {/* Tab Navigation */}
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-t-xl p-2">
+              <div className="flex gap-1">
+                {[
+                  { id: 'chat', name: 'Chat', icon: '💬' },
+                  { id: 'combat', name: 'Combat', icon: '⚔️' },
+                  { id: 'initiative', name: 'Initiative', icon: '🎯' },
+                  { id: 'spells', name: 'Spells', icon: '✨' },
+                  { id: 'inventory', name: 'Inventory', icon: '🎒' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveRightTab(tab.id)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      activeRightTab === tab.id
+                        ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    <span className="mr-1">{tab.icon}</span>
+                    <span className="hidden sm:inline">{tab.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tab Content */}
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 border-t-0 rounded-b-xl shadow-2xl h-96 overflow-hidden">
+              {activeRightTab === 'chat' && (
+                <ChatPanel
+                  chatMessages={chatMessages}
+                  onAddMessage={setChatMessages}
+                  playerMessage={playerMessage}
+                  onPlayerMessageChange={setPlayerMessage}
+                  playerName={playerName}
+                  onPlayerNameChange={setPlayerName}
+                  characters={characters}
+                  onMakeCharacterSpeak={handleMakeCharacterSpeak}
+                  currentActor={currentActor}
+                />
+              )}
+              
+              {activeRightTab === 'combat' && (
+                <CombatLog
+                  combatMessages={combatMessages}
+                  onClearLog={() => setCombatMessages([])}
+                />
+              )}
+              
+              {activeRightTab === 'initiative' && (
+                <InitiativeTracker
+                  characters={characters}
+                  onUpdateCharacter={updateCharacter}
+                  onCombatMessage={(message) => setCombatMessages(prev => [...prev, message])}
+                />
+              )}
+              
+              {activeRightTab === 'spells' && (
+                <SpellPanel
+                  selectedCharacter={selectedCharacterForActions}
+                  characters={characters}
+                  onCastSpell={handleAttack}
+                  onAddSpell={(characterId, spell) => {
+                    const character = characters.find(c => c.id === characterId);
+                    if (character) {
+                      const updatedChar = {
+                        ...character,
+                        spells: [...(character.spells || []), spell]
+                      };
+                      updateCharacter(updatedChar);
+                    }
+                  }}
+                  onRemoveSpell={(characterId, spellIndex) => {
+                    const character = characters.find(c => c.id === characterId);
+                    if (character) {
+                      const updatedChar = {
+                        ...character,
+                        spells: (character.spells || []).filter((_, i) => i !== spellIndex)
+                      };
+                      updateCharacter(updatedChar);
+                    }
+                  }}
+                  onClearSelection={() => setSelectedCharacterForActions(null)}
+                />
+              )}
+              
+              {activeRightTab === 'inventory' && (
+                <InventoryPanel
+                  selectedCharacter={selectedCharacterForActions}
+                  onRemoveInventoryItem={(itemIndex) => {
+                    if (selectedCharacterForActions) {
+                      const updatedChar = {
+                        ...selectedCharacterForActions,
+                        inventory: (selectedCharacterForActions.inventory || []).filter((_, i) => i !== itemIndex)
+                      };
+                      updateCharacter(updatedChar);
+                      setSelectedCharacterForActions(updatedChar);
+                    }
+                  }}
+                  onAddInventoryItem={(item) => {
+                    if (selectedCharacterForActions) {
+                      const updatedChar = {
+                        ...selectedCharacterForActions,
+                        inventory: [...(selectedCharacterForActions.inventory || []), item]
+                      };
+                      updateCharacter(updatedChar);
+                      setSelectedCharacterForActions(updatedChar);
+                    }
+                  }}
+                  onUpdateCharacterCurrency={(newCurrency) => {
+                    if (selectedCharacterForActions) {
+                      const updatedChar = {
+                        ...selectedCharacterForActions,
+                        currency: newCurrency
+                      };
+                      updateCharacter(updatedChar);
+                      setSelectedCharacterForActions(updatedChar);
+                    }
+                  }}
+                  onClearSelection={() => setSelectedCharacterForActions(null)}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Modals */}
+        {showCharacterModal && editingCharacter && (
+          <SimpleCharacterModal
+            character={editingCharacter}
+            characters={characters}
+            isDMMode={isDMMode}
+            onSave={(char) => {
+              handleCharacterUpdate(char);
+              setShowCharacterModal(false);
+              setEditingCharacter(null);
+            }}
+            onDelete={handleCharacterDelete}
+            onClose={() => {
+              setShowCharacterModal(false);
+              setEditingCharacter(null);
+            }}
+            onUpload={openUploadModal}
+          />
+        )}
+
+        {showSceneModal && (
+          <SceneModal
+            sceneImage={sceneImage}
+            sceneDescription={sceneDescription}
+            onSceneImageChange={setSceneImage}
+            onSceneDescriptionChange={setSceneDescription}
+            onShowScene={showScene}
+            onClose={() => setShowSceneModal(false)}
+            onUpload={openUploadModal}
+          />
+        )}
+
         {showUploadModal && (
           <UploadModal
             uploadType={uploadType}
@@ -435,10 +735,34 @@ const App = () => {
           />
         )}
 
-        {/* Rest of the UI components... */}
-        {/* This would include all your existing map, chat, modals, etc. */}
-        {/* For brevity, I'm not repeating the entire component here */}
-        
+        {showLootModal && lootingCharacter && (
+          <LootModal
+            deadCharacter={lootingCharacter}
+            onClose={() => {
+              setShowLootModal(false);
+              setLootingCharacter(null);
+            }}
+            onTakeLoot={handleTakeLoot}
+          />
+        )}
+
+        {showDialoguePopup && currentSpeaker && (
+          <DialoguePopup
+            speaker={currentSpeaker}
+            text={displayedText}
+            isTyping={isTyping}
+            queueLength={dialogueQueue.length}
+            onClose={closeDialogue}
+          />
+        )}
+
+        {showSceneDisplay && (
+          <SceneDisplay
+            image={sceneImage}
+            description={sceneDescription}
+            onClose={() => setShowSceneDisplay(false)}
+          />
+        )}
       </div>
     </div>
   );
