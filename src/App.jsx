@@ -1,5 +1,5 @@
-// src/App.jsx - Fixed image upload and resolution
-import React, { useState, useEffect } from 'react';
+// src/App.jsx - Enhanced with real-time multiplayer support and improved image handling
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
 import ChatPanel from './components/Chat/ChatPanel';
@@ -18,12 +18,30 @@ import SpellPanel from './components/Combat/SpellPanel';
 import InventoryPanel from './components/Combat/InventoryPanel';
 import LootModal from './components/Combat/LootModal';
 import DMControlPanel from './components/UI/DMControlPanel';
+import SessionManager from './components/UI/SessionManager';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDialogue } from './hooks/useDialogue';
 import { useCharacters } from './hooks/useCharacters';
 import { useDatabase } from './hooks/useDatabase';
+import { useRealtimeSync } from './hooks/useRealtimeSync';
 
 const App = () => {
+  // Real-time multiplayer hook
+  const realtimeSync = useRealtimeSync();
+  const {
+    sessionId,
+    isConnected: isSessionConnected,
+    userName: sessionUserName,
+    isDM: sessionIsDM,
+    broadcastCharacterUpdate,
+    broadcastCharacterDelete,
+    broadcastGameStateUpdate,
+    setOnCharacterUpdate,
+    setOnGameStateUpdate,
+    setOnUserJoined,
+    setOnUserLeft
+  } = realtimeSync;
+
   // Database integration
   const databaseHook = useDatabase();
   const {
@@ -40,8 +58,9 @@ const App = () => {
     loadGameState
   } = databaseHook;
 
-  // UI Mode state
-  const [isDMMode, setIsDMMode] = useLocalStorage('isDMMode', true);
+  // UI Mode state - use session DM status when connected
+  const [localIsDMMode, setLocalIsDMMode] = useLocalStorage('isDMMode', true);
+  const isDMMode = isSessionConnected ? sessionIsDM : localIsDMMode;
   const [collapsedPanels, setCollapsedPanels] = useLocalStorage('collapsedPanels', {});
 
   // Global state
@@ -78,6 +97,18 @@ const App = () => {
   // Combat state
   const [combatMessages, setCombatMessages] = useLocalStorage('combatMessages', []);
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
+  const [playerMessage, setPlayerMessage] = useState('');
+  const [playerName, setPlayerName] = useState('');
+
+  // Update player name when session user name changes
+  useEffect(() => {
+    if (isSessionConnected && sessionUserName && (!playerName || playerName === '')) {
+      setPlayerName(sessionUserName);
+    }
+  }, [isSessionConnected, sessionUserName, playerName]);
+
   // Custom hooks
   const { 
     characters, 
@@ -103,11 +134,6 @@ const App = () => {
     closeDialogue 
   } = useDialogue();
 
-  // Chat state
-  const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
-  const [playerMessage, setPlayerMessage] = useState('');
-  const [playerName, setPlayerName] = useState('');
-
   // Helper function to resolve image data
   const resolveImageData = async (imageReference) => {
     if (!imageReference) return null;
@@ -131,8 +157,97 @@ const App = () => {
     return imageReference;
   };
 
-  // Enhanced character update function that resolves images and saves to database
-  const handleCharacterUpdate = async (character) => {
+  // Real-time sync event handlers
+  const handleIncomingCharacterUpdate = useCallback((characterData, updatedBy) => {
+    console.log(`📥 Incoming character update from ${updatedBy}:`, characterData);
+    
+    if (characterData._deleted) {
+      // Handle character deletion
+      deleteCharacter(characterData.id);
+      
+      // Add notification to chat
+      setChatMessages(prev => [...prev, {
+        type: 'system',
+        name: 'System',
+        text: `Character deleted by ${updatedBy}`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } else {
+      // Handle character update/creation
+      updateCharacter(characterData);
+      
+      // Add notification to chat if it's a new character
+      const existingChar = characters.find(c => c.id === characterData.id);
+      if (!existingChar) {
+        setChatMessages(prev => [...prev, {
+          type: 'system',
+          name: 'System',
+          text: `${characterData.name} added by ${updatedBy}`,
+          timestamp: new Date().toLocaleTimeString()
+        }]);
+      }
+    }
+  }, [updateCharacter, deleteCharacter, characters, setChatMessages]);
+
+  const handleIncomingGameStateUpdate = useCallback((gameStateData, updatedBy) => {
+    console.log(`📥 Incoming game state update from ${updatedBy}:`, gameStateData);
+    
+    // Update terrain if present
+    if (gameStateData.terrain !== undefined) {
+      setTerrain(gameStateData.terrain);
+    }
+    
+    // Update grid size if present
+    if (gameStateData.gridSize !== undefined) {
+      setGridSize(gameStateData.gridSize);
+    }
+    
+    // Add notification to chat
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `Map updated by ${updatedBy}`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  }, [setTerrain, setGridSize, setChatMessages]);
+
+  const handleUserJoined = useCallback((userData) => {
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `${userData.userName} joined the session${userData.isDM ? ' as DM' : ''}`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  }, [setChatMessages]);
+
+  const handleUserLeft = useCallback((userData) => {
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `A player left the session`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  }, [setChatMessages]);
+
+  // Set up real-time sync event handlers
+  useEffect(() => {
+    setOnCharacterUpdate(handleIncomingCharacterUpdate);
+    setOnGameStateUpdate(handleIncomingGameStateUpdate);
+    setOnUserJoined(handleUserJoined);
+    setOnUserLeft(handleUserLeft);
+  }, [
+    handleIncomingCharacterUpdate,
+    handleIncomingGameStateUpdate,
+    handleUserJoined,
+    handleUserLeft,
+    setOnCharacterUpdate,
+    setOnGameStateUpdate,
+    setOnUserJoined,
+    setOnUserLeft
+  ]);
+
+  // Enhanced character update function that broadcasts to other users and resolves images
+  const handleCharacterUpdate = useCallback(async (character) => {
     let updatedCharacter = { ...character };
     
     // Resolve image references if they're database IDs
@@ -150,6 +265,7 @@ const App = () => {
       }
     }
     
+    // Update locally first
     updateCharacter(updatedCharacter);
     
     // Update current actor if it's the same character
@@ -157,16 +273,136 @@ const App = () => {
       setCurrentActor(updatedCharacter);
     }
     
-    // Save to database if connected (save with original database IDs)
+    // Broadcast to other users if connected
+    if (isSessionConnected) {
+      try {
+        await broadcastCharacterUpdate(character); // Broadcast original with database IDs
+        console.log(`📤 Broadcasted character update: ${character.name}`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to broadcast character update:`, error);
+      }
+    }
+    
+    // Save to database if connected (for persistence) - save original with database IDs
     if (isDatabaseConnected) {
       try {
-        await saveCharacterToDb(character); // Save original with database IDs
+        await saveCharacterToDb(character);
         console.log(`💾 Character ${character.name} saved to database`);
       } catch (error) {
         console.warn(`⚠️ Failed to save character ${character.name} to database:`, error);
       }
     }
-  };
+  }, [
+    updateCharacter,
+    currentActor,
+    isSessionConnected,
+    broadcastCharacterUpdate,
+    isDatabaseConnected,
+    saveCharacterToDb,
+    resolveImageData
+  ]);
+
+  // Enhanced character delete function
+  const handleCharacterDelete = useCallback(async (characterId) => {
+    // Delete locally first
+    deleteCharacter(characterId);
+    
+    // Broadcast to other users if connected
+    if (isSessionConnected) {
+      try {
+        await broadcastCharacterDelete(characterId);
+        console.log(`📤 Broadcasted character deletion: ${characterId}`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to broadcast character deletion:`, error);
+      }
+    }
+    
+    // Delete from database if connected
+    if (isDatabaseConnected) {
+      try {
+        await deleteCharacterFromDb(characterId);
+        console.log(`🗑️ Character deleted from database: ${characterId}`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to delete character from database:`, error);
+      }
+    }
+  }, [
+    deleteCharacter,
+    isSessionConnected,
+    broadcastCharacterDelete,
+    isDatabaseConnected,
+    deleteCharacterFromDb
+  ]);
+
+  // Enhanced terrain/game state update function
+  const handleTerrainChange = useCallback(async (newTerrain) => {
+    // Update locally first
+    setTerrain(newTerrain);
+    
+    // Broadcast to other users if connected
+    if (isSessionConnected) {
+      try {
+        const gameState = { terrain: newTerrain, gridSize };
+        await broadcastGameStateUpdate(gameState);
+        console.log(`📤 Broadcasted terrain update`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to broadcast terrain update:`, error);
+      }
+    }
+  }, [setTerrain, isSessionConnected, broadcastGameStateUpdate, gridSize]);
+
+  // Enhanced grid size change function
+  const handleGridSizeChange = useCallback(async (newGridSize) => {
+    // Update locally first
+    setGridSize(newGridSize);
+    
+    // Broadcast to other users if connected
+    if (isSessionConnected) {
+      try {
+        const gameState = { terrain, gridSize: newGridSize };
+        await broadcastGameStateUpdate(gameState);
+        console.log(`📤 Broadcasted grid size update`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to broadcast grid size update:`, error);
+      }
+    }
+  }, [setGridSize, isSessionConnected, broadcastGameStateUpdate, terrain]);
+
+  // Session management handlers
+  const handleSessionJoined = useCallback((newSessionId, userName) => {
+    console.log(`🎉 Joined session: ${newSessionId} as ${userName}`);
+    
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `Connected to session as ${userName}`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  }, [setChatMessages]);
+
+  const handleSessionLeft = useCallback(() => {
+    console.log(`👋 Left session`);
+    
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `Disconnected from session`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  }, [setChatMessages]);
+
+  // Enhanced character movement that broadcasts updates
+  const handleCharacterMove = useCallback(async (characterId, x, y) => {
+    // Find the character
+    const character = characters.find(c => c.id === characterId);
+    if (!character) return;
+    
+    // Update position
+    const updatedCharacter = { ...character, x, y };
+    
+    // Use the enhanced update function which will broadcast
+    await handleCharacterUpdate(updatedCharacter);
+  }, [characters, handleCharacterUpdate]);
 
   // Enhanced upload handler with better image resolution
   const handleUpload = async (file, result) => {
@@ -251,10 +487,6 @@ const App = () => {
       const dbCharacter = { ...savedCharacter, sprite: savedCharacter._spriteDbId };
       delete dbCharacter._spriteDbId;
       
-      if (isDatabaseConnected) {
-        await saveCharacterToDb(dbCharacter);
-      }
-      
       // Update local state with data URL for display
       delete characterToSave._spriteDbId;
     }
@@ -264,29 +496,88 @@ const App = () => {
       const dbCharacter = { ...savedCharacter, portrait: savedCharacter._portraitDbId };
       delete dbCharacter._portraitDbId;
       
-      if (isDatabaseConnected) {
-        await saveCharacterToDb(dbCharacter);
-      }
-      
       // Update local state with data URL for display
       delete characterToSave._portraitDbId;
     }
     
-    updateCharacter(characterToSave);
-    
-    // Update current actor if it's the same character
-    if (currentActor && currentActor.id === characterToSave.id) {
-      setCurrentActor(characterToSave);
-    }
+    // Use enhanced update function which handles database saving and broadcasting
+    await handleCharacterUpdate(characterToSave);
     
     setShowCharacterModal(false);
     setEditingCharacter(null);
   };
 
-  // Load game state from database on startup
+  // Load initial data when session is connected
+  useEffect(() => {
+    if (isSessionConnected && isDatabaseConnected) {
+      // Load session-specific data
+      const loadSessionData = async () => {
+        try {
+          console.log(`🔄 Loading data for session: ${sessionId}`);
+          
+          // Load characters
+          const sessionCharacters = await loadCharactersFromDb();
+          if (sessionCharacters.length > 0) {
+            // Resolve image references for characters
+            const charactersWithImages = await Promise.all(
+              sessionCharacters.map(async (char) => {
+                const updatedChar = { ...char };
+                
+                // Load sprite if it's a database reference
+                if (char.sprite && char.sprite.startsWith('img_')) {
+                  try {
+                    const spriteData = await getImage(char.sprite);
+                    if (spriteData) {
+                      updatedChar.sprite = spriteData;
+                    }
+                  } catch (error) {
+                    console.warn(`Failed to load sprite for ${char.name}:`, error);
+                  }
+                }
+                
+                // Load portrait if it's a database reference
+                if (char.portrait && char.portrait.startsWith('img_')) {
+                  try {
+                    const portraitData = await getImage(char.portrait);
+                    if (portraitData) {
+                      updatedChar.portrait = portraitData;
+                    }
+                  } catch (error) {
+                    console.warn(`Failed to load portrait for ${char.name}:`, error);
+                  }
+                }
+                
+                return updatedChar;
+              })
+            );
+            
+            setCharacters(charactersWithImages);
+            console.log(`✅ Loaded ${charactersWithImages.length} characters for session`);
+          }
+          
+          // Load game state
+          const gameState = await loadGameState();
+          if (gameState) {
+            if (gameState.terrain) setTerrain(gameState.terrain);
+            if (gameState.customTerrainSprites) setCustomTerrainSprites(gameState.customTerrainSprites);
+            if (gameState.gridSize) setGridSize(gameState.gridSize);
+            if (gameState.chatMessages) setChatMessages(gameState.chatMessages);
+            if (gameState.combatMessages) setCombatMessages(gameState.combatMessages);
+            console.log(`✅ Loaded game state for session`);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to load session data:', error);
+        }
+      };
+      
+      loadSessionData();
+    }
+  }, [isSessionConnected, isDatabaseConnected, sessionId, loadCharactersFromDb, loadGameState, setCharacters, setTerrain, setGridSize, setChatMessages, setCombatMessages, setCustomTerrainSprites, getImage]);
+
+  // Load game state from database on startup (for non-session mode)
   useEffect(() => {
     const loadGameData = async () => {
-      if (isDatabaseConnected && !isDatabaseLoading) {
+      if (isDatabaseConnected && !isDatabaseLoading && !isSessionConnected) {
         try {
           console.log('🔄 Loading game data from database...');
           
@@ -351,7 +642,7 @@ const App = () => {
     };
 
     loadGameData();
-  }, [isDatabaseConnected, isDatabaseLoading]);
+  }, [isDatabaseConnected, isDatabaseLoading, isSessionConnected]);
 
   // Auto-save game state to database periodically
   useEffect(() => {
@@ -366,7 +657,7 @@ const App = () => {
           gridSize,
           chatMessages: chatMessages.slice(-50),
           combatMessages: combatMessages.slice(-50),
-          isDMMode,
+          isDMMode: localIsDMMode, // Save local DM mode, not session-based
           showGrid,
           showNames,
           gridColor
@@ -389,10 +680,11 @@ const App = () => {
     gridSize, 
     chatMessages, 
     combatMessages,
-    isDMMode,
+    localIsDMMode,
     showGrid,
     showNames,
-    gridColor
+    gridColor,
+    saveGameState
   ]);
 
   // Enhanced makeCharacterSpeak that also adds to chat
@@ -425,7 +717,7 @@ const App = () => {
     setShowCharacterModal(true);
   };
 
-  const handleAddMonster = (monster) => {
+  const handleAddMonster = async (monster) => {
     let x = Math.floor(Math.random() * (gridSize - 5)) + 2;
     let y = Math.floor(Math.random() * (gridSize - 5)) + 2;
     
@@ -443,11 +735,25 @@ const App = () => {
     const monsterWithPosition = { ...monster, x, y };
     const addedMonster = addMonster(monsterWithPosition);
     
+    // Broadcast the new monster if in session
+    if (isSessionConnected) {
+      await handleCharacterUpdate(addedMonster);
+    }
+    
     setCombatMessages(prev => [...prev, {
       type: 'spawn',
       text: `${monster.name} appears on the battlefield!`,
       timestamp: new Date().toLocaleTimeString()
     }]);
+  };
+
+  // Enhanced DM mode toggle
+  const handleToggleDMMode = () => {
+    if (!isSessionConnected) {
+      // Only allow local toggle when not in a session
+      setLocalIsDMMode(!localIsDMMode);
+    }
+    // When in a session, DM mode is controlled by session role
   };
 
   const handleAttack = (combatResult, targetId, damage) => {
@@ -465,7 +771,7 @@ const App = () => {
         
         if (damage < 0) {
           newHp = Math.min(oldHp - damage, target.maxHp);
-          updateCharacter({ ...target, hp: newHp });
+          handleCharacterUpdate({ ...target, hp: newHp });
           
           setCombatMessages(prev => [...prev, {
             type: 'healing',
@@ -477,7 +783,7 @@ const App = () => {
           }]);
         } else if (damage > 0) {
           newHp = Math.max(0, oldHp - damage);
-          updateCharacter({ ...target, hp: newHp });
+          handleCharacterUpdate({ ...target, hp: newHp });
           
           setCombatMessages(prev => [...prev, {
             type: 'damage',
@@ -585,7 +891,7 @@ const App = () => {
       }
     };
 
-    updateCharacter(updatedCharacter);
+    handleCharacterUpdate(updatedCharacter);
     
     if (currentActor && currentActor.id === receivingCharacter.id) {
       setCurrentActor(updatedCharacter);
@@ -606,7 +912,7 @@ const App = () => {
       timestamp: new Date().toLocaleTimeString()
     }]);
 
-    updateCharacter({
+    handleCharacterUpdate({
       ...lootingCharacter,
       looted: true
     });
@@ -626,7 +932,7 @@ const App = () => {
   const addSpellToCharacter = (characterId, spell) => {
     const character = characters.find(c => c.id === characterId);
     if (character) {
-      updateCharacter({
+      handleCharacterUpdate({
         ...character,
         spells: [...(character.spells || []), spell]
       });
@@ -636,7 +942,7 @@ const App = () => {
   const removeSpellFromCharacter = (characterId, spellIndex) => {
     const character = characters.find(c => c.id === characterId);
     if (character) {
-      updateCharacter({
+      handleCharacterUpdate({
         ...character,
         spells: (character.spells || []).filter((_, index) => index !== spellIndex)
       });
@@ -654,22 +960,7 @@ const App = () => {
     }));
   };
 
-  const handleCharacterDelete = async (characterId) => {
-    deleteCharacter(characterId);
-    
-    if (isDatabaseConnected) {
-      try {
-        await deleteCharacterFromDb(characterId);
-        console.log(`🗑️ Character deleted from database: ${characterId}`);
-      } catch (error) {
-        console.warn(`⚠️ Failed to delete character from database:`, error);
-      }
-    }
-  };
-
   // Define available tabs
-  const sharedTabs = ['actions', 'conditions', 'spells', 'inventory'];
-  const dmOnlyTabs = ['initiative'];
   const availableSharedTabs = [
     { id: 'actions', name: 'Actions', icon: '⚔️' },
     { id: 'conditions', name: 'Conditions', icon: '🎭' },
@@ -698,8 +989,26 @@ const App = () => {
         return (
           <ConditionsPanel
             selectedCharacter={currentActor}
-            onAddCondition={addCondition}
-            onRemoveCondition={removeCondition}
+            onAddCondition={(characterId, condition) => {
+              const character = characters.find(c => c.id === characterId);
+              if (character) {
+                const updatedCharacter = {
+                  ...character,
+                  conditions: [...(character.conditions || []), condition]
+                };
+                handleCharacterUpdate(updatedCharacter);
+              }
+            }}
+            onRemoveCondition={(characterId, conditionIndex) => {
+              const character = characters.find(c => c.id === characterId);
+              if (character) {
+                const updatedCharacter = {
+                  ...character,
+                  conditions: (character.conditions || []).filter((_, index) => index !== conditionIndex)
+                };
+                handleCharacterUpdate(updatedCharacter);
+              }
+            }}
             onClearSelection={() => {
               setCurrentActor(null);
               setSelectedCharacterForActions(null);
@@ -783,9 +1092,21 @@ const App = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <div className="max-w-full mx-auto p-4 text-white">
+        
+        {/* Session Manager - Shows at top when not connected */}
+        {!isSessionConnected && (
+          <div className="mb-4">
+            <SessionManager
+              realtimeSync={realtimeSync}
+              onSessionJoined={handleSessionJoined}
+              onSessionLeft={handleSessionLeft}
+            />
+          </div>
+        )}
+
         <Header 
           isDMMode={isDMMode}
-          onToggleDMMode={() => setIsDMMode(!isDMMode)}
+          onToggleDMMode={handleToggleDMMode}
           onShowScene={() => setShowSceneModal(true)}
           paintMode={paintMode}
           onTogglePaint={() => setPaintMode(!paintMode)}
@@ -797,10 +1118,24 @@ const App = () => {
           onToggleNames={() => setShowNames(!showNames)}
           isDatabaseConnected={isDatabaseConnected}
           isDatabaseLoading={isDatabaseLoading}
-          // Add grid size control back to header
           gridSize={gridSize}
-          onGridSizeChange={setGridSize}
+          onGridSizeChange={handleGridSizeChange}
+          // Add session info to header
+          isSessionConnected={isSessionConnected}
+          sessionUserName={sessionUserName}
+          sessionId={sessionId}
         />
+
+        {/* Session Manager - Compact view when connected */}
+        {isSessionConnected && (
+          <div className="mb-4">
+            <SessionManager
+              realtimeSync={realtimeSync}
+              onSessionJoined={handleSessionJoined}
+              onSessionLeft={handleSessionLeft}
+            />
+          </div>
+        )}
 
         {/* Database Debug Panel */}
         {(isDMMode || connectionStatus === 'error' || showDatabaseDebug) && (
@@ -830,13 +1165,13 @@ const App = () => {
               isCollapsed={collapsedPanels.dmControls}
               onToggleCollapse={() => togglePanel('dmControls')}
               gridSize={gridSize}
-              onGridSizeChange={setGridSize}
+              onGridSizeChange={handleGridSizeChange}
               onAddCharacter={handleAddCharacter}
               paintMode={paintMode}
               selectedTerrain={selectedTerrain}
               onSelectedTerrainChange={setSelectedTerrain}
               customTerrainSprites={customTerrainSprites}
-              onClearTerrain={() => setTerrain({})}
+              onClearTerrain={() => handleTerrainChange({})}
               onUpload={openUploadModal}
             />
           </div>
@@ -854,7 +1189,7 @@ const App = () => {
           <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-3' : 'xl:col-span-4'}`}>
             <BattleMap
               gridSize={gridSize}
-              onGridSizeChange={setGridSize}
+              onGridSizeChange={handleGridSizeChange}
               characters={characters}
               onAddCharacter={handleAddCharacter}
               onEditCharacter={(char) => {
@@ -864,9 +1199,9 @@ const App = () => {
               onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
-              onMoveCharacter={moveCharacter}
+              onMoveCharacter={handleCharacterMove}
               terrain={terrain}
-              onTerrainChange={isDMMode ? setTerrain : null}
+              onTerrainChange={isDMMode ? handleTerrainChange : null}
               customTerrainSprites={customTerrainSprites}
               paintMode={isDMMode ? paintMode : false}
               selectedTerrain={selectedTerrain}
@@ -897,8 +1232,13 @@ const App = () => {
                       No character selected
                     </span>
                   )}
-                  {isDatabaseConnected && (
+                  {isSessionConnected && (
                     <span className="ml-3 text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
+                      🌐 Live Session
+                    </span>
+                  )}
+                  {isDatabaseConnected && (
+                    <span className="ml-3 text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded">
                       ☁️ Cloud Sync
                     </span>
                   )}
@@ -985,6 +1325,11 @@ const App = () => {
                   >
                     <span className="mr-2">💬</span>
                     Chat
+                    {isSessionConnected && (
+                      <span className="ml-2 text-xs bg-green-500/20 text-green-300 px-1 py-0.5 rounded">
+                        Live
+                      </span>
+                    )}
                   </button>
                   <button
                     onClick={() => setActiveRightTab('log')}
