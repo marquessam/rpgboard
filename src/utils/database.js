@@ -1,6 +1,4 @@
-// src/utils/database.js - Fixed to use Netlify Functions instead of direct connection
-// This file makes HTTP requests to your Netlify Function instead of connecting directly
-
+// src/utils/database.js - Enhanced with real-time multiplayer support
 const API_BASE = '/.netlify/functions/database';
 
 // Helper function to make API requests
@@ -8,6 +6,14 @@ const apiRequest = async (operation, options = {}) => {
   try {
     const url = new URL(API_BASE, window.location.origin);
     url.searchParams.set('operation', operation);
+    
+    // Add session and user context
+    if (options.sessionId) {
+      url.searchParams.set('sessionId', options.sessionId);
+    }
+    if (options.userId) {
+      url.searchParams.set('userId', options.userId);
+    }
     
     // Add any additional query parameters
     if (options.params) {
@@ -47,6 +53,78 @@ const apiRequest = async (operation, options = {}) => {
   }
 };
 
+// Session Management
+export const joinSession = async (sessionId, userId, userName, userColor, isDM = false) => {
+  try {
+    const result = await apiRequest('join-session', {
+      method: 'POST',
+      sessionId,
+      userId,
+      body: { userName, userColor, isDM }
+    });
+    return result.success;
+  } catch (error) {
+    console.error('Failed to join session:', error);
+    return false;
+  }
+};
+
+export const leaveSession = async (sessionId, userId) => {
+  try {
+    const result = await apiRequest('leave-session', {
+      method: 'POST',
+      sessionId,
+      userId
+    });
+    return result.success;
+  } catch (error) {
+    console.error('Failed to leave session:', error);
+    return false;
+  }
+};
+
+export const sendHeartbeat = async (sessionId, userId, cursorX = 0, cursorY = 0) => {
+  try {
+    const result = await apiRequest('heartbeat', {
+      method: 'POST',
+      sessionId,
+      userId,
+      body: { cursorX, cursorY }
+    });
+    return result.success;
+  } catch (error) {
+    console.error('Failed to send heartbeat:', error);
+    return false;
+  }
+};
+
+export const getSessionUsers = async (sessionId) => {
+  try {
+    const result = await apiRequest('get-session-users', {
+      sessionId
+    });
+    return result || [];
+  } catch (error) {
+    console.error('Failed to get session users:', error);
+    return [];
+  }
+};
+
+// Real-time sync
+export const getSessionUpdates = async (sessionId, userId, since = null) => {
+  try {
+    const result = await apiRequest('get-updates', {
+      sessionId,
+      userId,
+      params: since ? { since } : {}
+    });
+    return result || [];
+  } catch (error) {
+    console.error('Failed to get session updates:', error);
+    return [];
+  }
+};
+
 // Initialize database tables (calls the function to create tables)
 export const initDatabase = async () => {
   try {
@@ -75,10 +153,11 @@ export const checkDatabaseHealth = async () => {
 };
 
 // Image operations
-export const saveImage = async (imageData, imageType = 'sprite', name = 'image') => {
+export const saveImage = async (imageData, imageType = 'sprite', name = 'image', sessionId = 'default') => {
   try {
     const result = await apiRequest('save-image', {
       method: 'POST',
+      sessionId,
       body: {
         imageData,
         imageType,
@@ -104,10 +183,12 @@ export const loadImage = async (imageId) => {
 };
 
 // Character operations
-export const saveCharacter = async (character) => {
+export const saveCharacter = async (character, sessionId = 'default', userId = 'system') => {
   try {
     const result = await apiRequest('save-character', {
       method: 'POST',
+      sessionId,
+      userId,
       body: character
     });
     return result.success;
@@ -117,9 +198,11 @@ export const saveCharacter = async (character) => {
   }
 };
 
-export const loadCharacters = async () => {
+export const loadCharacters = async (sessionId = 'default') => {
   try {
-    const result = await apiRequest('load-characters');
+    const result = await apiRequest('load-characters', {
+      sessionId
+    });
     return Array.isArray(result) ? result : [];
   } catch (error) {
     console.error('Failed to load characters:', error);
@@ -127,10 +210,12 @@ export const loadCharacters = async () => {
   }
 };
 
-export const deleteCharacter = async (characterId) => {
+export const deleteCharacter = async (characterId, sessionId = 'default', userId = 'system') => {
   try {
     const result = await apiRequest('delete-character', {
       method: 'DELETE',
+      sessionId,
+      userId,
       params: { characterId }
     });
     return result.success;
@@ -141,31 +226,27 @@ export const deleteCharacter = async (characterId) => {
 };
 
 // Game session operations
-export const saveGameSession = async (sessionData) => {
+export const saveGameSession = async (sessionData, sessionId = 'default', userId = 'system') => {
   try {
-    // For now, we'll store game sessions as special characters
-    // You could extend the Netlify Function to handle game sessions separately
-    const gameSessionCharacter = {
-      id: 'game-session-' + (sessionData.id || 'default'),
-      name: 'Game Session Data',
-      ...sessionData,
-      isGameSession: true
-    };
-    
-    return await saveCharacter(gameSessionCharacter);
+    const result = await apiRequest('save-game-state', {
+      method: 'POST',
+      sessionId,
+      userId,
+      body: sessionData
+    });
+    return result.success;
   } catch (error) {
     console.error('Failed to save game session:', error);
     return false;
   }
 };
 
-export const loadGameSession = async (sessionId = 'default-session') => {
+export const loadGameSession = async (sessionId = 'default') => {
   try {
-    const characters = await loadCharacters();
-    const gameSession = characters.find(char => 
-      char.id === `game-session-${sessionId}` && char.isGameSession
-    );
-    return gameSession || null;
+    const result = await apiRequest('load-game-state', {
+      sessionId
+    });
+    return result || null;
   } catch (error) {
     console.error('Failed to load game session:', error);
     return null;
@@ -173,9 +254,11 @@ export const loadGameSession = async (sessionId = 'default-session') => {
 };
 
 // Get database statistics
-export const getDatabaseStats = async () => {
+export const getDatabaseStats = async (sessionId = 'default') => {
   try {
-    const result = await apiRequest('stats');
+    const result = await apiRequest('stats', {
+      sessionId
+    });
     return result;
   } catch (error) {
     console.error('Failed to get database stats:', error);
@@ -214,5 +297,18 @@ export const testConnection = async () => {
       success: false,
       message: error.message
     };
+  }
+};
+
+// Cleanup function (can be called periodically)
+export const cleanupOldData = async () => {
+  try {
+    const result = await apiRequest('cleanup', {
+      method: 'POST'
+    });
+    return result.success;
+  } catch (error) {
+    console.error('Failed to cleanup old data:', error);
+    return false;
   }
 };
