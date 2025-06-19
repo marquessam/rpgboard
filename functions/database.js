@@ -1,4 +1,4 @@
-// functions/database.js - FIXED VERSION with corrected schema
+// functions/database.js - VERSION WITH CLEAN RESET
 import { neon } from '@neondatabase/serverless';
 
 // FIXED: Explicit environment variable handling
@@ -12,11 +12,11 @@ const getDatabaseUrl = () => {
   return url;
 };
 
-// Initialize database tables with FIXED schema
+// Initialize database tables with CLEAN RESET
 const initDatabase = async () => {
   let sql;
   try {
-    console.log('🔧 Initializing database tables...');
+    console.log('🔧 Initializing database tables with clean reset...');
     
     const databaseUrl = getDatabaseUrl();
     if (!databaseUrl) {
@@ -26,24 +26,37 @@ const initDatabase = async () => {
     // FIXED: Pass URL explicitly to neon()
     sql = neon(databaseUrl);
     
-    // FIXED: Create tables in correct order and with proper syntax
-    console.log('Creating characters table...');
+    // STEP 1: Drop existing tables to start fresh
+    console.log('🗑️ Dropping existing tables...');
+    try {
+      await sql`DROP TABLE IF EXISTS session_updates CASCADE`;
+      await sql`DROP TABLE IF EXISTS session_users CASCADE`;
+      await sql`DROP TABLE IF EXISTS characters CASCADE`;
+      await sql`DROP TABLE IF EXISTS images CASCADE`;
+      await sql`DROP TABLE IF EXISTS game_sessions CASCADE`;
+      console.log('✅ Old tables dropped');
+    } catch (dropError) {
+      console.log('ℹ️ Some tables may not have existed:', dropError.message);
+    }
+    
+    // STEP 2: Create tables with correct schema
+    console.log('📋 Creating characters table...');
     await sql`
-      CREATE TABLE IF NOT EXISTS characters (
+      CREATE TABLE characters (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL DEFAULT 'default',
         name TEXT NOT NULL,
         data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_by TEXT DEFAULT 'system'
       )
     `;
-    console.log('✅ Characters table ready');
+    console.log('✅ Characters table created');
 
-    console.log('Creating images table...');
+    console.log('📋 Creating images table...');
     await sql`
-      CREATE TABLE IF NOT EXISTS images (
+      CREATE TABLE images (
         id TEXT PRIMARY KEY,
         session_id TEXT DEFAULT 'default',
         name TEXT NOT NULL,
@@ -51,60 +64,60 @@ const initDatabase = async () => {
         data TEXT NOT NULL,
         mime_type TEXT DEFAULT 'image/png',
         size_bytes INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `;
-    console.log('✅ Images table ready');
+    console.log('✅ Images table created');
 
-    console.log('Creating game_sessions table...');
+    console.log('📋 Creating game_sessions table...');
     await sql`
-      CREATE TABLE IF NOT EXISTS game_sessions (
+      CREATE TABLE game_sessions (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_by TEXT DEFAULT 'system'
       )
     `;
-    console.log('✅ Game sessions table ready');
+    console.log('✅ Game sessions table created');
 
-    console.log('Creating session_users table...');
+    console.log('📋 Creating session_users table...');
     await sql`
-      CREATE TABLE IF NOT EXISTS session_users (
+      CREATE TABLE session_users (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
         user_name TEXT NOT NULL,
         user_color TEXT DEFAULT '#6366f1',
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         is_dm BOOLEAN DEFAULT false,
         cursor_x INTEGER DEFAULT 0,
         cursor_y INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `;
-    console.log('✅ Session users table ready');
+    console.log('✅ Session users table created');
 
-    console.log('Creating session_updates table...');
+    console.log('📋 Creating session_updates table...');
     await sql`
-      CREATE TABLE IF NOT EXISTS session_updates (
+      CREATE TABLE session_updates (
         id SERIAL PRIMARY KEY,
         session_id TEXT NOT NULL,
         update_type TEXT NOT NULL,
         data JSONB NOT NULL,
         updated_by TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `;
-    console.log('✅ Session updates table ready');
+    console.log('✅ Session updates table created');
 
-    // Create indexes for better performance
-    console.log('Creating indexes...');
-    await sql`CREATE INDEX IF NOT EXISTS idx_characters_session ON characters(session_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_session_users_session ON session_users(session_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_session_updates_session ON session_updates(session_id, created_at DESC)`;
-    console.log('✅ Database indexes ready');
+    // STEP 3: Create indexes for better performance
+    console.log('📋 Creating indexes...');
+    await sql`CREATE INDEX idx_characters_session ON characters(session_id)`;
+    await sql`CREATE INDEX idx_session_users_session ON session_users(session_id)`;
+    await sql`CREATE INDEX idx_session_updates_session ON session_updates(session_id, created_at DESC)`;
+    console.log('✅ Database indexes created');
 
     console.log('🎉 Database initialization completed successfully!');
     return { success: true, sql };
@@ -136,7 +149,7 @@ export default async (request, context) => {
     
     console.log(`📨 Database function called: ${operation} for session: ${sessionId}, user: ${userId}`);
     
-    // FIXED: Better database initialization with detailed error reporting
+    // Initialize database with clean reset
     const initResult = await initDatabase();
     if (!initResult.success) {
       console.error('❌ Database initialization failed:', initResult.error);
@@ -173,6 +186,44 @@ export default async (request, context) => {
             healthy: false,
             error: healthError.message,
             timestamp: new Date().toISOString()
+          }), { 
+            status: 500,
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+
+      case 'test':
+        console.log('🧪 Testing database connection...');
+        try {
+          const testQuery = await sql`SELECT CURRENT_TIMESTAMP as test_time, version() as postgres_version`;
+          console.log('✅ Database test successful:', testQuery[0]);
+          
+          // Test table access
+          const tableTest = await sql`SELECT COUNT(*) as count FROM characters`;
+          console.log('✅ Table access test successful:', tableTest[0]);
+          
+          return new Response(JSON.stringify({
+            success: true,
+            result: testQuery[0],
+            tableTest: tableTest[0],
+            message: 'Database connection and tables working!',
+            environment: {
+              NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
+              DATABASE_URL: !!process.env.DATABASE_URL
+            }
+          }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Database test failed:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error.message,
+            stack: error.stack,
+            environment: {
+              NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
+              DATABASE_URL: !!process.env.DATABASE_URL
+            }
           }), { 
             status: 500,
             headers: { ...headers, 'Content-Type': 'application/json' } 
@@ -244,27 +295,17 @@ export default async (request, context) => {
           }
           
           try {
-            // FIXED: Use INSERT ... ON CONFLICT instead of UPSERT
-            const existing = await sql`SELECT id FROM session_users WHERE id = ${userId}`;
-            
-            if (existing.length > 0) {
-              // Update existing user
-              await sql`
-                UPDATE session_users 
-                SET session_id = ${sessionId},
-                    user_name = ${userName},
-                    user_color = ${userColor},
-                    is_dm = ${isDM || false},
-                    last_seen = CURRENT_TIMESTAMP
-                WHERE id = ${userId}
-              `;
-            } else {
-              // Insert new user
-              await sql`
-                INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
-                VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM || false}, CURRENT_TIMESTAMP)
-              `;
-            }
+            // Simple upsert using INSERT ... ON CONFLICT
+            await sql`
+              INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
+              VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM || false}, CURRENT_TIMESTAMP)
+              ON CONFLICT (id) DO UPDATE SET
+                session_id = EXCLUDED.session_id,
+                user_name = EXCLUDED.user_name,
+                user_color = EXCLUDED.user_color,
+                is_dm = EXCLUDED.is_dm,
+                last_seen = EXCLUDED.last_seen
+            `;
             console.log('✅ User added to session_users table');
 
             // Add session update
@@ -421,69 +462,6 @@ export default async (request, context) => {
           });
         }
 
-      case 'save-image':
-        if (request.method === 'POST') {
-          try {
-            const bodyText = await request.text();
-            const { imageData, imageType, name } = JSON.parse(bodyText);
-            
-            if (!imageData || !name) {
-              return new Response(JSON.stringify({ 
-                error: 'Missing imageData or name' 
-              }), { 
-                status: 400,
-                headers: { ...headers, 'Content-Type': 'application/json' } 
-              });
-            }
-            
-            const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            const mimeMatch = imageData.match(/data:([^;]+);/);
-            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-            const sizeBytes = Math.round((imageData.length * 3) / 4);
-            
-            await sql`
-              INSERT INTO images (id, session_id, name, type, data, mime_type, size_bytes, updated_at)
-              VALUES (${imageId}, ${sessionId}, ${name}, ${imageType || 'sprite'}, ${imageData}, ${mimeType}, ${sizeBytes}, CURRENT_TIMESTAMP)
-            `;
-            
-            console.log(`✅ Image saved: ${imageId}`);
-            return new Response(JSON.stringify({ imageId }), { 
-              headers: { ...headers, 'Content-Type': 'application/json' } 
-            });
-          } catch (error) {
-            console.error('💥 Error saving image:', error);
-            return new Response(JSON.stringify({ 
-              error: 'Failed to save image', 
-              details: error.message 
-            }), { 
-              status: 500,
-              headers: { ...headers, 'Content-Type': 'application/json' } 
-            });
-          }
-        }
-        break;
-
-      case 'get-image':
-        try {
-          const imageId = url.searchParams.get('imageId');
-          if (!imageId) {
-            return new Response(JSON.stringify({ data: null }), { 
-              headers: { ...headers, 'Content-Type': 'application/json' } 
-            });
-          }
-          
-          const [image] = await sql`SELECT * FROM images WHERE id = ${imageId}`;
-          return new Response(JSON.stringify(image ? { data: image.data } : { data: null }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
-        } catch (error) {
-          console.error('💥 Error getting image:', error);
-          return new Response(JSON.stringify({ data: null }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
-        }
-
       case 'save-character':
         if (request.method === 'POST') {
           try {
@@ -501,27 +479,17 @@ export default async (request, context) => {
               });
             }
             
-            // Check if character exists
-            const existing = await sql`SELECT id FROM characters WHERE id = ${character.id}`;
-            
-            if (existing.length > 0) {
-              // Update existing character
-              await sql`
-                UPDATE characters 
-                SET session_id = ${sessionId},
-                    name = ${character.name},
-                    data = ${JSON.stringify(character)},
-                    updated_at = CURRENT_TIMESTAMP,
-                    updated_by = ${userId}
-                WHERE id = ${character.id}
-              `;
-            } else {
-              // Insert new character
-              await sql`
-                INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
-                VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, CURRENT_TIMESTAMP, ${userId})
-              `;
-            }
+            // Use upsert with ON CONFLICT
+            await sql`
+              INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
+              VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, CURRENT_TIMESTAMP, ${userId})
+              ON CONFLICT (id) DO UPDATE SET
+                session_id = EXCLUDED.session_id,
+                name = EXCLUDED.name,
+                data = EXCLUDED.data,
+                updated_at = EXCLUDED.updated_at,
+                updated_by = EXCLUDED.updated_by
+            `;
 
             // Add session update for real-time sync
             await sql`
@@ -631,26 +599,16 @@ export default async (request, context) => {
               });
             }
             
-            // Check if game session exists
-            const existing = await sql`SELECT id FROM game_sessions WHERE id = ${sessionId}`;
-            
-            if (existing.length > 0) {
-              // Update existing game session
-              await sql`
-                UPDATE game_sessions 
-                SET name = ${gameState.name || 'Game Session'},
-                    data = ${JSON.stringify(gameState)},
-                    updated_at = CURRENT_TIMESTAMP,
-                    updated_by = ${userId}
-                WHERE id = ${sessionId}
-              `;
-            } else {
-              // Insert new game session
-              await sql`
-                INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
-                VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, CURRENT_TIMESTAMP, ${userId})
-              `;
-            }
+            // Use upsert with ON CONFLICT
+            await sql`
+              INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
+              VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, CURRENT_TIMESTAMP, ${userId})
+              ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                data = EXCLUDED.data,
+                updated_at = EXCLUDED.updated_at,
+                updated_by = EXCLUDED.updated_by
+            `;
 
             // Add session update for terrain/grid changes only
             if (gameState.terrain !== undefined || gameState.gridSize !== undefined) {
@@ -701,6 +659,69 @@ export default async (request, context) => {
           });
         }
 
+      case 'save-image':
+        if (request.method === 'POST') {
+          try {
+            const bodyText = await request.text();
+            const { imageData, imageType, name } = JSON.parse(bodyText);
+            
+            if (!imageData || !name) {
+              return new Response(JSON.stringify({ 
+                error: 'Missing imageData or name' 
+              }), { 
+                status: 400,
+                headers: { ...headers, 'Content-Type': 'application/json' } 
+              });
+            }
+            
+            const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            const mimeMatch = imageData.match(/data:([^;]+);/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+            const sizeBytes = Math.round((imageData.length * 3) / 4);
+            
+            await sql`
+              INSERT INTO images (id, session_id, name, type, data, mime_type, size_bytes, updated_at)
+              VALUES (${imageId}, ${sessionId}, ${name}, ${imageType || 'sprite'}, ${imageData}, ${mimeType}, ${sizeBytes}, CURRENT_TIMESTAMP)
+            `;
+            
+            console.log(`✅ Image saved: ${imageId}`);
+            return new Response(JSON.stringify({ imageId }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (error) {
+            console.error('💥 Error saving image:', error);
+            return new Response(JSON.stringify({ 
+              error: 'Failed to save image', 
+              details: error.message 
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
+        }
+        break;
+
+      case 'get-image':
+        try {
+          const imageId = url.searchParams.get('imageId');
+          if (!imageId) {
+            return new Response(JSON.stringify({ data: null }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
+          
+          const [image] = await sql`SELECT * FROM images WHERE id = ${imageId}`;
+          return new Response(JSON.stringify(image ? { data: image.data } : { data: null }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Error getting image:', error);
+          return new Response(JSON.stringify({ data: null }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+
       case 'cleanup':
         try {
           await sql`
@@ -722,39 +743,6 @@ export default async (request, context) => {
             success: false, 
             error: error.message 
           }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
-        }
-
-      case 'test':
-        console.log('🧪 Testing database connection...');
-        try {
-          const testQuery = await sql`SELECT CURRENT_TIMESTAMP as test_time, version() as postgres_version`;
-          console.log('✅ Database test successful:', testQuery[0]);
-          
-          return new Response(JSON.stringify({
-            success: true,
-            result: testQuery[0],
-            message: 'Database connection working!',
-            environment: {
-              NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
-              DATABASE_URL: !!process.env.DATABASE_URL
-            }
-          }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
-        } catch (error) {
-          console.error('💥 Database test failed:', error);
-          return new Response(JSON.stringify({
-            success: false,
-            error: error.message,
-            stack: error.stack,
-            environment: {
-              NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
-              DATABASE_URL: !!process.env.DATABASE_URL
-            }
-          }), { 
-            status: 500,
             headers: { ...headers, 'Content-Type': 'application/json' } 
           });
         }
