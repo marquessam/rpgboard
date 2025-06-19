@@ -1,123 +1,59 @@
-// src/utils/database.js - Fixed for client-side use with direct Neon access
-import { neon } from '@neondatabase/serverless';
+// src/utils/database.js - Fixed to use Netlify Functions instead of direct connection
+// This file makes HTTP requests to your Netlify Function instead of connecting directly
 
-// For client-side use, we need to provide the connection string directly
-// Since we can't access server-side environment variables from the browser,
-// we'll need to configure this differently
+const API_BASE = '/.netlify/functions/database';
 
-let sql = null;
-let isInitialized = false;
-
-// Initialize database connection with client-side approach
-const initializeConnection = () => {
+// Helper function to make API requests
+const apiRequest = async (operation, options = {}) => {
   try {
-    // Option 1: Check if running in Netlify Functions environment
-    if (typeof process !== 'undefined' && process.env && process.env.NETLIFY_DATABASE_URL) {
-      console.log('🔧 Database: Using server-side environment variable');
-      sql = neon(process.env.NETLIFY_DATABASE_URL);
-      return true;
+    const url = new URL(API_BASE, window.location.origin);
+    url.searchParams.set('operation', operation);
+    
+    // Add any additional query parameters
+    if (options.params) {
+      Object.entries(options.params).forEach(([key, value]) => {
+        url.searchParams.set(key, value);
+      });
     }
     
-    // Option 2: Check for Netlify-specific environment access
-    if (typeof Netlify !== 'undefined' && Netlify.env) {
-      console.log('🔧 Database: Using Netlify.env');
-      sql = neon(Netlify.env.get('NETLIFY_DATABASE_URL'));
-      return true;
+    const fetchOptions = {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    };
+    
+    if (options.body) {
+      fetchOptions.body = JSON.stringify(options.body);
     }
     
-    // Option 3: Check for client-side environment variable (requires VITE_ prefix)
-    if (import.meta.env && import.meta.env.VITE_NETLIFY_DATABASE_URL) {
-      console.log('🔧 Database: Using Vite environment variable');
-      sql = neon(import.meta.env.VITE_NETLIFY_DATABASE_URL);
-      return true;
+    console.log(`🌐 API Request: ${operation}`, { url: url.toString(), options: fetchOptions });
+    
+    const response = await fetch(url.toString(), fetchOptions);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
     
-    // Option 4: Fallback - connection string not available in client
-    console.warn('⚠️ Database: No connection string found in client environment');
-    console.log('💡 Database: This is expected - server-side environment variables are not available in the browser');
-    console.log('💡 Database: Consider using Netlify Functions for database operations');
-    return false;
+    const result = await response.json();
+    console.log(`✅ API Response: ${operation}`, result);
+    return result;
     
   } catch (error) {
-    console.error('💥 Database: Connection initialization failed:', error);
-    return false;
+    console.error(`💥 API Error: ${operation}`, error);
+    throw error;
   }
 };
 
-// Initialize database tables
+// Initialize database tables (calls the function to create tables)
 export const initDatabase = async () => {
-  if (!sql) {
-    const connected = initializeConnection();
-    if (!connected) {
-      console.log('🔄 Database: Skipping table initialization - no connection available');
-      return false;
-    }
-  }
-
   try {
-    console.log('🔧 Database: Creating tables...');
-    
-    // Characters table
-    await sql`
-      CREATE TABLE IF NOT EXISTS characters (
-        id VARCHAR PRIMARY KEY,
-        name VARCHAR NOT NULL,
-        data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `;
-
-    // Images table for storing sprites and portraits
-    await sql`
-      CREATE TABLE IF NOT EXISTS images (
-        id VARCHAR PRIMARY KEY,
-        name VARCHAR NOT NULL,
-        type VARCHAR NOT NULL, -- 'sprite', 'portrait', 'terrain', 'scene'
-        data TEXT NOT NULL, -- base64 encoded image data
-        mime_type VARCHAR DEFAULT 'image/png',
-        size_bytes INTEGER,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `;
-
-    // Game sessions table
-    await sql`
-      CREATE TABLE IF NOT EXISTS game_sessions (
-        id VARCHAR PRIMARY KEY,
-        name VARCHAR NOT NULL,
-        data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `;
-
-    // Chat messages table
-    await sql`
-      CREATE TABLE IF NOT EXISTS chat_messages (
-        id SERIAL PRIMARY KEY,
-        session_id VARCHAR DEFAULT 'default-session',
-        message_data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `;
-
-    // Combat messages table
-    await sql`
-      CREATE TABLE IF NOT EXISTS combat_messages (
-        id SERIAL PRIMARY KEY,
-        session_id VARCHAR DEFAULT 'default-session',
-        message_data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `;
-
-    console.log('✅ Database: Tables created successfully');
-    isInitialized = true;
-    return true;
+    const health = await checkDatabaseHealth();
+    return health.healthy;
   } catch (error) {
-    console.error('💥 Database: Table creation failed:', error);
+    console.error('Database initialization failed:', error);
     return false;
   }
 };
@@ -125,23 +61,12 @@ export const initDatabase = async () => {
 // Check if we have a working database connection
 export const checkDatabaseHealth = async () => {
   try {
-    if (!sql) {
-      const connected = initializeConnection();
-      if (!connected) {
-        return {
-          healthy: false,
-          error: 'Connection string not found - this is expected in client-side applications'
-        };
-      }
-    }
-
-    const [result] = await sql`SELECT NOW() as current_time`;
+    const result = await apiRequest('health');
     return {
-      healthy: true,
-      timestamp: result.current_time
+      healthy: result.healthy,
+      timestamp: result.timestamp
     };
   } catch (error) {
-    console.error('💥 Database: Health check failed:', error);
     return {
       healthy: false,
       error: error.message
@@ -149,288 +74,145 @@ export const checkDatabaseHealth = async () => {
   }
 };
 
-// Image operations - with better error handling
+// Image operations
 export const saveImage = async (imageData, imageType = 'sprite', name = 'image') => {
-  if (!sql) {
-    throw new Error('Database connection not available');
-  }
-
   try {
-    const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Extract mime type and size from data URL
-    const mimeMatch = imageData.match(/data:([^;]+);/);
-    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-    const sizeBytes = Math.round((imageData.length * 3) / 4); // Rough base64 size calculation
-    
-    await sql`
-      INSERT INTO images (id, name, type, data, mime_type, size_bytes, updated_at)
-      VALUES (${imageId}, ${name}, ${imageType}, ${imageData}, ${mimeType}, ${sizeBytes}, NOW())
-    `;
-    
-    console.log(`✅ Database: Image saved successfully: ${imageId}`);
-    return imageId;
+    const result = await apiRequest('save-image', {
+      method: 'POST',
+      body: {
+        imageData,
+        imageType,
+        name
+      }
+    });
+    return result.imageId;
   } catch (error) {
-    console.error('💥 Database: Image save failed:', error);
     throw new Error(`Failed to save image: ${error.message}`);
   }
 };
 
 export const loadImage = async (imageId) => {
-  if (!sql) {
-    console.warn('Database connection not available for image loading');
+  try {
+    const result = await apiRequest('get-image', {
+      params: { imageId }
+    });
+    return result?.data || null;
+  } catch (error) {
+    console.error('Failed to load image:', error);
     return null;
-  }
-
-  try {
-    const [result] = await sql`SELECT * FROM images WHERE id = ${imageId}`;
-    return result ? result.data : null;
-  } catch (error) {
-    console.error('💥 Database: Image load failed:', error);
-    return null;
-  }
-};
-
-export const loadImagesByType = async (imageType) => {
-  if (!sql) {
-    return [];
-  }
-
-  try {
-    const result = await sql`SELECT * FROM images WHERE type = ${imageType} ORDER BY created_at DESC`;
-    return result;
-  } catch (error) {
-    console.error('💥 Database: Images by type load failed:', error);
-    return [];
-  }
-};
-
-export const deleteImage = async (imageId) => {
-  if (!sql) {
-    return false;
-  }
-
-  try {
-    await sql`DELETE FROM images WHERE id = ${imageId}`;
-    return true;
-  } catch (error) {
-    console.error('💥 Database: Image delete failed:', error);
-    return false;
   }
 };
 
 // Character operations
 export const saveCharacter = async (character) => {
-  if (!sql) {
-    console.warn('Database connection not available for character saving');
-    return false;
-  }
-
   try {
-    await sql`
-      INSERT INTO characters (id, name, data, updated_at)
-      VALUES (${character.id}, ${character.name}, ${JSON.stringify(character)}, NOW())
-      ON CONFLICT (id) 
-      DO UPDATE SET 
-        name = ${character.name},
-        data = ${JSON.stringify(character)},
-        updated_at = NOW()
-    `;
-    return true;
+    const result = await apiRequest('save-character', {
+      method: 'POST',
+      body: character
+    });
+    return result.success;
   } catch (error) {
-    console.error('💥 Database: Character save failed:', error);
+    console.error('Failed to save character:', error);
     return false;
   }
 };
 
 export const loadCharacters = async () => {
-  if (!sql) {
-    console.log('Database connection not available for character loading');
-    return [];
-  }
-
   try {
-    const result = await sql`SELECT * FROM characters ORDER BY updated_at DESC`;
-    return result.map(row => row.data);
+    const result = await apiRequest('load-characters');
+    return Array.isArray(result) ? result : [];
   } catch (error) {
-    console.error('💥 Database: Character load failed:', error);
+    console.error('Failed to load characters:', error);
     return [];
   }
 };
 
 export const deleteCharacter = async (characterId) => {
-  if (!sql) {
-    return false;
-  }
-
   try {
-    await sql`DELETE FROM characters WHERE id = ${characterId}`;
-    return true;
+    const result = await apiRequest('delete-character', {
+      method: 'DELETE',
+      params: { characterId }
+    });
+    return result.success;
   } catch (error) {
-    console.error('💥 Database: Character delete failed:', error);
+    console.error('Failed to delete character:', error);
     return false;
   }
 };
 
 // Game session operations
 export const saveGameSession = async (sessionData) => {
-  if (!sql) {
-    return false;
-  }
-
   try {
-    const sessionId = sessionData.id || 'default-session';
-    await sql`
-      INSERT INTO game_sessions (id, name, data, updated_at)
-      VALUES (${sessionId}, ${sessionData.name || 'Game Session'}, ${JSON.stringify(sessionData)}, NOW())
-      ON CONFLICT (id)
-      DO UPDATE SET 
-        data = ${JSON.stringify(sessionData)},
-        updated_at = NOW()
-    `;
-    return true;
+    // For now, we'll store game sessions as special characters
+    // You could extend the Netlify Function to handle game sessions separately
+    const gameSessionCharacter = {
+      id: 'game-session-' + (sessionData.id || 'default'),
+      name: 'Game Session Data',
+      ...sessionData,
+      isGameSession: true
+    };
+    
+    return await saveCharacter(gameSessionCharacter);
   } catch (error) {
-    console.error('💥 Database: Game session save failed:', error);
+    console.error('Failed to save game session:', error);
     return false;
   }
 };
 
 export const loadGameSession = async (sessionId = 'default-session') => {
-  if (!sql) {
+  try {
+    const characters = await loadCharacters();
+    const gameSession = characters.find(char => 
+      char.id === `game-session-${sessionId}` && char.isGameSession
+    );
+    return gameSession || null;
+  } catch (error) {
+    console.error('Failed to load game session:', error);
     return null;
   }
-
-  try {
-    const [result] = await sql`SELECT * FROM game_sessions WHERE id = ${sessionId}`;
-    return result ? result.data : null;
-  } catch (error) {
-    console.error('💥 Database: Game session load failed:', error);
-    return null;
-  }
 };
 
-// Chat operations
-export const saveChatMessage = async (message, sessionId = 'default-session') => {
-  if (!sql) {
-    return false;
-  }
-
-  try {
-    await sql`
-      INSERT INTO chat_messages (session_id, message_data)
-      VALUES (${sessionId}, ${JSON.stringify(message)})
-    `;
-    return true;
-  } catch (error) {
-    console.error('💥 Database: Chat message save failed:', error);
-    return false;
-  }
-};
-
-export const loadChatMessages = async (sessionId = 'default-session', limit = 100) => {
-  if (!sql) {
-    return [];
-  }
-
-  try {
-    const result = await sql`
-      SELECT message_data FROM chat_messages 
-      WHERE session_id = ${sessionId}
-      ORDER BY created_at DESC 
-      LIMIT ${limit}
-    `;
-    return result.map(row => row.message_data).reverse();
-  } catch (error) {
-    console.error('💥 Database: Chat messages load failed:', error);
-    return [];
-  }
-};
-
-// Combat messages operations
-export const saveCombatMessage = async (message, sessionId = 'default-session') => {
-  if (!sql) {
-    return false;
-  }
-
-  try {
-    await sql`
-      INSERT INTO combat_messages (session_id, message_data)
-      VALUES (${sessionId}, ${JSON.stringify(message)})
-    `;
-    return true;
-  } catch (error) {
-    console.error('💥 Database: Combat message save failed:', error);
-    return false;
-  }
-};
-
-export const loadCombatMessages = async (sessionId = 'default-session', limit = 100) => {
-  if (!sql) {
-    return [];
-  }
-
-  try {
-    const result = await sql`
-      SELECT message_data FROM combat_messages 
-      WHERE session_id = ${sessionId}
-      ORDER BY created_at DESC 
-      LIMIT ${limit}
-    `;
-    return result.map(row => row.message_data).reverse();
-  } catch (error) {
-    console.error('💥 Database: Combat messages load failed:', error);
-    return [];
-  }
-};
-
-// Utility functions
-export const clearOldMessages = async (sessionId = 'default-session', daysOld = 7) => {
-  if (!sql) {
-    return false;
-  }
-
-  try {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-    
-    await sql`
-      DELETE FROM chat_messages 
-      WHERE session_id = ${sessionId} 
-      AND created_at < ${cutoffDate.toISOString()}
-    `;
-    
-    await sql`
-      DELETE FROM combat_messages 
-      WHERE session_id = ${sessionId} 
-      AND created_at < ${cutoffDate.toISOString()}
-    `;
-    
-    return true;
-  } catch (error) {
-    console.error('💥 Database: Clear old messages failed:', error);
-    return false;
-  }
-};
-
+// Get database statistics
 export const getDatabaseStats = async () => {
-  if (!sql) {
+  try {
+    const result = await apiRequest('stats');
+    return result;
+  } catch (error) {
+    console.error('Failed to get database stats:', error);
     return null;
   }
+};
 
+// Test connection function
+export const testConnection = async () => {
   try {
-    const [charCount] = await sql`SELECT COUNT(*) as count FROM characters`;
-    const [imageCount] = await sql`SELECT COUNT(*) as count FROM images`;
-    const [chatCount] = await sql`SELECT COUNT(*) as count FROM chat_messages`;
-    const [combatCount] = await sql`SELECT COUNT(*) as count FROM combat_messages`;
+    console.log('🧪 Testing database connection...');
+    const health = await checkDatabaseHealth();
     
-    return {
-      characters: parseInt(charCount.count),
-      images: parseInt(imageCount.count),
-      chatMessages: parseInt(chatCount.count),
-      combatMessages: parseInt(combatCount.count)
-    };
+    if (health.healthy) {
+      console.log('✅ Database connection test successful');
+      
+      // Try to get stats
+      const stats = await getDatabaseStats();
+      console.log('📊 Database stats:', stats);
+      
+      return {
+        success: true,
+        message: 'Database connection is working',
+        stats
+      };
+    } else {
+      console.warn('⚠️ Database connection test failed:', health.error);
+      return {
+        success: false,
+        message: health.error || 'Database connection failed'
+      };
+    }
   } catch (error) {
-    console.error('💥 Database: Stats failed:', error);
-    return null;
+    console.error('💥 Database connection test error:', error);
+    return {
+      success: false,
+      message: error.message
+    };
   }
 };
