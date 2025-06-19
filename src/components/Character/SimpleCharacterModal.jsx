@@ -53,7 +53,15 @@ const SimpleCharacterModal = ({
 
   // Sync with prop changes (for when uploads complete)
   useEffect(() => {
+    console.log('🔄 Character prop changed:', { 
+      propCharacter: character?.id, 
+      editingCharacter: editingCharacter?.id,
+      propSprite: character?.sprite?.substring?.(0, 50),
+      propPortrait: character?.portrait?.substring?.(0, 50)
+    });
+    
     if (character && character.id === editingCharacter.id) {
+      console.log('✅ Syncing modal state with prop changes');
       setEditingCharacter(character);
     }
   }, [character]);
@@ -91,30 +99,42 @@ const SimpleCharacterModal = ({
     const resolveImages = async () => {
       // Resolve sprite
       if (editingCharacter.sprite) {
-        if (isDatabaseImageId(editingCharacter.sprite)) {
+        // If it's already a data URL, use it directly
+        if (editingCharacter.sprite.startsWith('data:')) {
+          setResolvedSprite(editingCharacter.sprite);
+          setLoadingSprite(false);
+        } else if (isDatabaseImageId(editingCharacter.sprite)) {
           setLoadingSprite(true);
           const resolved = await resolveImageData(editingCharacter.sprite);
           setResolvedSprite(resolved);
           setLoadingSprite(false);
         } else {
           setResolvedSprite(editingCharacter.sprite);
+          setLoadingSprite(false);
         }
       } else {
         setResolvedSprite(null);
+        setLoadingSprite(false);
       }
 
       // Resolve portrait
       if (editingCharacter.portrait) {
-        if (isDatabaseImageId(editingCharacter.portrait)) {
+        // If it's already a data URL, use it directly
+        if (editingCharacter.portrait.startsWith('data:')) {
+          setResolvedPortrait(editingCharacter.portrait);
+          setLoadingPortrait(false);
+        } else if (isDatabaseImageId(editingCharacter.portrait)) {
           setLoadingPortrait(true);
           const resolved = await resolveImageData(editingCharacter.portrait);
           setResolvedPortrait(resolved);
           setLoadingPortrait(false);
         } else {
           setResolvedPortrait(editingCharacter.portrait);
+          setLoadingPortrait(false);
         }
       } else {
         setResolvedPortrait(null);
+        setLoadingPortrait(false);
       }
     };
 
@@ -169,6 +189,11 @@ const SimpleCharacterModal = ({
 
   // Image display component
   const ImageDisplay = ({ src, loading, alt, className, placeholder }) => {
+    // Debug logging
+    useEffect(() => {
+      console.log(`ImageDisplay: ${alt}`, { src, loading });
+    }, [src, loading, alt]);
+
     if (loading) {
       return (
         <div className={`flex items-center justify-center bg-slate-700 animate-pulse ${className}`}>
@@ -184,8 +209,12 @@ const SimpleCharacterModal = ({
           alt={alt}
           className={className}
           onError={(e) => {
+            console.error(`Failed to load image: ${alt}`, src);
             e.target.style.display = 'none';
             e.target.nextSibling.style.display = 'flex';
+          }}
+          onLoad={() => {
+            console.log(`Successfully loaded image: ${alt}`, src);
           }}
         />
       );
