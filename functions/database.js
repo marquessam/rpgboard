@@ -1,4 +1,4 @@
-// netlify/functions/database.js - Enhanced with real-time multiplayer support
+// functions/database.js - Enhanced with better error handling and debugging
 import { neon } from '@netlify/neon';
 
 const sql = neon(); // This will work on the server-side with NETLIFY_DATABASE_URL
@@ -6,6 +6,8 @@ const sql = neon(); // This will work on the server-side with NETLIFY_DATABASE_U
 // Initialize database tables
 const initDatabase = async () => {
   try {
+    console.log('🔧 Initializing database tables...');
+    
     // Characters table
     await sql`
       CREATE TABLE IF NOT EXISTS characters (
@@ -18,6 +20,7 @@ const initDatabase = async () => {
         updated_by VARCHAR DEFAULT 'system'
       )
     `;
+    console.log('✅ Characters table ready');
 
     // Images table for storing sprites and portraits
     await sql`
@@ -33,6 +36,7 @@ const initDatabase = async () => {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `;
+    console.log('✅ Images table ready');
 
     // Game sessions table
     await sql`
@@ -45,6 +49,7 @@ const initDatabase = async () => {
         updated_by VARCHAR DEFAULT 'system'
       )
     `;
+    console.log('✅ Game sessions table ready');
 
     // Session users table - track who's in each session
     await sql`
@@ -60,6 +65,7 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `;
+    console.log('✅ Session users table ready');
 
     // Session updates table - track changes for real-time sync
     await sql`
@@ -72,15 +78,18 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `;
+    console.log('✅ Session updates table ready');
 
     // Create indexes for better performance
     await sql`CREATE INDEX IF NOT EXISTS idx_characters_session ON characters(session_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_session_users_session ON session_users(session_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_session_updates_session ON session_updates(session_id, created_at DESC)`;
+    console.log('✅ Database indexes ready');
 
+    console.log('🎉 Database initialization completed successfully!');
     return true;
   } catch (error) {
-    console.error('Database initialization error:', error);
+    console.error('💥 Database initialization error:', error);
     return false;
   }
 };
@@ -103,18 +112,49 @@ export default async (request, context) => {
     const sessionId = url.searchParams.get('sessionId') || 'default';
     const userId = url.searchParams.get('userId') || 'anonymous';
     
+    console.log(`📨 Database function called: ${operation} for session: ${sessionId}`);
+    
+    // Check if database is available
+    if (!process.env.NETLIFY_DATABASE_URL && !process.env.DATABASE_URL) {
+      console.error('❌ No database URL found in environment variables');
+      return new Response(JSON.stringify({
+        error: 'Database not configured. Run: netlify db init',
+        healthy: false
+      }), { 
+        status: 500,
+        headers: { ...headers, 'Content-Type': 'application/json' } 
+      });
+    }
+    
     // Initialize database if needed
-    await initDatabase();
+    const initResult = await initDatabase();
+    if (!initResult) {
+      console.error('❌ Database initialization failed');
+      return new Response(JSON.stringify({
+        error: 'Database initialization failed',
+        healthy: false
+      }), { 
+        status: 500,
+        headers: { ...headers, 'Content-Type': 'application/json' } 
+      });
+    }
 
     switch (operation) {
       case 'health':
+        console.log('🏥 Health check requested');
         const [result] = await sql`SELECT NOW() as current_time`;
-        return new Response(JSON.stringify({
+        const healthResponse = {
           healthy: true,
-          timestamp: result.current_time
-        }), { headers: { ...headers, 'Content-Type': 'application/json' } });
+          timestamp: result.current_time,
+          message: 'Database connection successful'
+        };
+        console.log('✅ Health check passed:', healthResponse);
+        return new Response(JSON.stringify(healthResponse), { 
+          headers: { ...headers, 'Content-Type': 'application/json' } 
+        });
 
       case 'stats':
+        console.log('📊 Stats requested for session:', sessionId);
         const [charCount] = await sql`SELECT COUNT(*) as count FROM characters WHERE session_id = ${sessionId}`;
         const [imageCount] = await sql`SELECT COUNT(*) as count FROM images WHERE session_id = ${sessionId}`;
         const [userCount] = await sql`SELECT COUNT(*) as count FROM session_users WHERE session_id = ${sessionId} AND last_seen > NOW() - INTERVAL '5 minutes'`;
@@ -124,6 +164,7 @@ export default async (request, context) => {
           activeUsers: parseInt(userCount.count),
           sessionId
         };
+        console.log('📈 Stats result:', stats);
         return new Response(JSON.stringify(stats), { 
           headers: { ...headers, 'Content-Type': 'application/json' } 
         });
@@ -131,7 +172,10 @@ export default async (request, context) => {
       // Session Management
       case 'join-session':
         if (request.method === 'POST') {
+          console.log('👥 User joining session:', { sessionId, userId });
+          
           const { userName, userColor, isDM } = await request.json();
+          console.log('📝 User data:', { userName, userColor, isDM });
           
           // Upsert user in session
           await sql`
@@ -144,14 +188,18 @@ export default async (request, context) => {
               is_dm = ${isDM},
               last_seen = NOW()
           `;
+          console.log('✅ User added to session_users table');
 
           // Add session update
           await sql`
             INSERT INTO session_updates (session_id, update_type, data, updated_by)
             VALUES (${sessionId}, 'user_joined', ${JSON.stringify({ userName, userColor, isDM })}, ${userId})
           `;
+          console.log('✅ Session update recorded');
 
-          return new Response(JSON.stringify({ success: true }), { 
+          const successResponse = { success: true, message: 'Successfully joined session' };
+          console.log('🎉 Join session successful:', successResponse);
+          return new Response(JSON.stringify(successResponse), { 
             headers: { ...headers, 'Content-Type': 'application/json' } 
           });
         }
@@ -159,6 +207,8 @@ export default async (request, context) => {
 
       case 'leave-session':
         if (request.method === 'POST') {
+          console.log('👋 User leaving session:', { sessionId, userId });
+          
           await sql`DELETE FROM session_users WHERE id = ${userId}`;
           
           // Add session update
@@ -167,7 +217,9 @@ export default async (request, context) => {
             VALUES (${sessionId}, 'user_left', ${JSON.stringify({ userId })}, ${userId})
           `;
 
-          return new Response(JSON.stringify({ success: true }), { 
+          const successResponse = { success: true, message: 'Successfully left session' };
+          console.log('✅ Leave session successful:', successResponse);
+          return new Response(JSON.stringify(successResponse), { 
             headers: { ...headers, 'Content-Type': 'application/json' } 
           });
         }
@@ -346,18 +398,28 @@ export default async (request, context) => {
         });
 
       default:
-        return new Response(JSON.stringify({ error: 'Unknown operation' }), { 
+        console.error('❌ Unknown operation:', operation);
+        return new Response(JSON.stringify({ 
+          error: `Unknown operation: ${operation}`,
+          availableOperations: ['health', 'stats', 'join-session', 'leave-session']
+        }), { 
           status: 400, 
           headers: { ...headers, 'Content-Type': 'application/json' } 
         });
     }
 
   } catch (error) {
-    console.error('Database function error:', error);
-    return new Response(JSON.stringify({ 
+    console.error('💥 Database function error:', error);
+    
+    // More detailed error information
+    const errorResponse = {
       error: error.message,
-      healthy: false 
-    }), { 
+      healthy: false,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    };
+    
+    return new Response(JSON.stringify(errorResponse), { 
       status: 500, 
       headers: { ...headers, 'Content-Type': 'application/json' } 
     });
