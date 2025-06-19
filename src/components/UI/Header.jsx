@@ -1,6 +1,6 @@
 // src/components/UI/Header.jsx - Enhanced with grid size control and better organization
 import React from 'react';
-import { Image, Paintbrush, LayoutGrid, Users, Settings, Eye, EyeOff, Grid3X3 } from 'lucide-react';
+import { Image, Paintbrush, LayoutGrid, Users, Settings, Eye, EyeOff } from 'lucide-react';
 
 const Header = ({
   isDMMode,
@@ -75,7 +75,7 @@ const Header = ({
           
           {/* Grid Size Control - Always visible */}
           <div className="flex items-center gap-2 bg-slate-700/50 rounded-lg p-1 border border-slate-600">
-            <Grid3X3 size={16} className="text-slate-400 ml-2" />
+            <LayoutGrid size={16} className="text-slate-400 ml-2" />
             <select
               value={gridSize}
               onChange={(e) => onGridSizeChange(parseInt(e.target.value))}
