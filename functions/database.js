@@ -1,12 +1,29 @@
-// functions/database.js - Fixed version with better error handling and null checks
-import { neon } from '@netlify/neon';
+// functions/database.js - Complete Fixed version with better error handling and null checks
+import { neon } from '@neondatabase/serverless'; // FIXED: Use correct package
 
-const sql = neon(); // This will work on the server-side with NETLIFY_DATABASE_URL
+// FIXED: Explicit environment variable handling
+const getDatabaseUrl = () => {
+  const url = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL;
+  console.log('🔍 Database URL check:', {
+    NETLIFY_DATABASE_URL: process.env.NETLIFY_DATABASE_URL ? 'SET' : 'NOT SET',
+    DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+    hasUrl: !!url
+  });
+  return url;
+};
 
 // Initialize database tables
 const initDatabase = async () => {
   try {
     console.log('🔧 Initializing database tables...');
+    
+    const databaseUrl = getDatabaseUrl();
+    if (!databaseUrl) {
+      throw new Error('No database URL found in environment variables');
+    }
+    
+    // FIXED: Pass URL explicitly to neon()
+    const sql = neon(databaseUrl);
     
     // Characters table
     await sql`
@@ -87,10 +104,10 @@ const initDatabase = async () => {
     console.log('✅ Database indexes ready');
 
     console.log('🎉 Database initialization completed successfully!');
-    return true;
+    return { success: true, sql }; // Return sql instance for reuse
   } catch (error) {
     console.error('💥 Database initialization error:', error);
-    return false;
+    return { success: false, error: error.message };
   }
 };
 
@@ -114,30 +131,22 @@ export default async (request, context) => {
     
     console.log(`📨 Database function called: ${operation} for session: ${sessionId}, user: ${userId}`);
     
-    // Check if database is available
-    if (!process.env.NETLIFY_DATABASE_URL && !process.env.DATABASE_URL) {
-      console.error('❌ No database URL found in environment variables');
-      return new Response(JSON.stringify({
-        error: 'Database not configured. Run: netlify db init',
-        healthy: false
-      }), { 
-        status: 500,
-        headers: { ...headers, 'Content-Type': 'application/json' } 
-      });
-    }
-    
-    // Initialize database if needed
+    // FIXED: Better database initialization with error details
     const initResult = await initDatabase();
-    if (!initResult) {
-      console.error('❌ Database initialization failed');
+    if (!initResult.success) {
+      console.error('❌ Database initialization failed:', initResult.error);
       return new Response(JSON.stringify({
-        error: 'Database initialization failed',
-        healthy: false
+        error: `Database initialization failed: ${initResult.error}`,
+        healthy: false,
+        details: initResult.error
       }), { 
         status: 500,
         headers: { ...headers, 'Content-Type': 'application/json' } 
       });
     }
+
+    // Get the sql instance
+    const sql = initResult.sql;
 
     switch (operation) {
       case 'health':
@@ -661,6 +670,42 @@ export default async (request, context) => {
           });
         }
 
+      // ADDED: Test endpoint for debugging
+      case 'test':
+        console.log('🧪 Testing database connection...');
+        console.log('Environment variables available:', Object.keys(process.env).filter(key => key.includes('DATABASE')));
+        
+        try {
+          const testQuery = await sql`SELECT NOW() as test_time, version() as postgres_version`;
+          console.log('✅ Database test successful:', testQuery[0]);
+          
+          return new Response(JSON.stringify({
+            success: true,
+            result: testQuery[0],
+            message: 'Database connection working!',
+            environment: {
+              NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
+              DATABASE_URL: !!process.env.DATABASE_URL
+            }
+          }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Database test failed:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error.message,
+            stack: error.stack,
+            environment: {
+              NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
+              DATABASE_URL: !!process.env.DATABASE_URL
+            }
+          }), { 
+            status: 500,
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+
       default:
         console.error('❌ Unknown operation:', operation);
         return new Response(JSON.stringify({ 
@@ -669,7 +714,7 @@ export default async (request, context) => {
             'health', 'stats', 'join-session', 'leave-session', 'heartbeat',
             'get-session-users', 'get-updates', 'save-character', 'load-characters',
             'delete-character', 'save-game-state', 'load-game-state', 'save-image',
-            'get-image', 'cleanup'
+            'get-image', 'cleanup', 'test'
           ]
         }), { 
           status: 400, 
@@ -688,7 +733,11 @@ export default async (request, context) => {
       sessionId: url.searchParams.get('sessionId'),
       userId: url.searchParams.get('userId'),
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      environment: {
+        NETLIFY_DATABASE_URL: !!process.env.NETLIFY_DATABASE_URL,
+        DATABASE_URL: !!process.env.DATABASE_URL
+      }
     };
     
     return new Response(JSON.stringify(errorResponse), { 
