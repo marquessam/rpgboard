@@ -1,4 +1,4 @@
-// src/App.jsx - Fixed with proper null checking
+// src/App.jsx - Enhanced with improved null checking and error handling
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -194,19 +194,23 @@ const App = () => {
     return imageReference;
   };
 
-  // FIXED: Real-time sync event handlers with proper null checking
+  // ENHANCED: Real-time sync event handlers with improved null checking and error handling
   const handleIncomingCharacterUpdate = useCallback((characterData, updatedBy) => {
-    // Add null check here
-    if (!characterData) {
-      console.warn('📥 Received null character data, ignoring update');
-      return;
-    }
+    try {
+      // Enhanced null and validity checks
+      if (!characterData) {
+        console.warn('📥 Received null character data, ignoring update');
+        return;
+      }
 
-    console.log(`📥 Incoming character update from ${updatedBy}:`, characterData);
-    
-    if (characterData._deleted) {
-      // Handle character deletion
-      if (characterData.id) {
+      // Check if it's a deletion
+      if (characterData._deleted) {
+        if (!characterData.id) {
+          console.warn('📥 Received character deletion without ID, ignoring');
+          return;
+        }
+        
+        console.log(`📥 Incoming character deletion from ${updatedBy || 'unknown'}:`, characterData.id);
         deleteCharacter(characterData.id);
         
         // Add notification to chat
@@ -216,91 +220,192 @@ const App = () => {
           text: `Character deleted by ${updatedBy || 'another player'}`,
           timestamp: new Date().toLocaleTimeString()
         }]);
+        return;
       }
-    } else {
-      // Handle character update/creation
+
+      // Validate character data for updates
+      if (!characterData.id || !characterData.name) {
+        console.warn('📥 Received invalid character data, missing required fields:', characterData);
+        return;
+      }
+
+      console.log(`📥 Incoming character update from ${updatedBy || 'unknown'}:`, {
+        id: characterData.id,
+        name: characterData.name,
+        hasSprite: !!characterData.sprite,
+        hasPortrait: !!characterData.portrait
+      });
+      
+      // Check if this is a new character
+      const existingChar = characters.find(c => c && c.id === characterData.id);
+      const isNewCharacter = !existingChar;
+      
+      // Update character with validation
       updateCharacter(characterData);
       
-      // Add notification to chat if it's a new character
-      const existingChar = characters.find(c => c.id === characterData.id);
-      if (!existingChar) {
+      // Add notification to chat for new characters only
+      if (isNewCharacter) {
         setChatMessages(prev => [...prev, {
           type: 'system',
           name: 'System',
-          text: `${characterData.name || 'A character'} added by ${updatedBy || 'another player'}`,
+          text: `${characterData.name} added by ${updatedBy || 'another player'}`,
           timestamp: new Date().toLocaleTimeString()
         }]);
       }
+      
+    } catch (error) {
+      console.error('💥 Error handling incoming character update:', error);
     }
   }, [updateCharacter, deleteCharacter, characters, setChatMessages]);
 
   const handleIncomingGameStateUpdate = useCallback((gameStateData, updatedBy) => {
-    // Add null check here
-    if (!gameStateData) {
-      console.warn('📥 Received null game state data, ignoring update');
-      return;
-    }
+    try {
+      // Enhanced null and validity checks
+      if (!gameStateData || typeof gameStateData !== 'object') {
+        console.warn('📥 Received invalid game state data, ignoring update:', gameStateData);
+        return;
+      }
 
-    console.log(`📥 Incoming game state update from ${updatedBy}:`, gameStateData);
-    
-    // Update terrain if present
-    if (gameStateData.terrain !== undefined) {
-      setTerrain(gameStateData.terrain);
+      console.log(`📥 Incoming game state update from ${updatedBy || 'unknown'}:`, {
+        hasTerrain: gameStateData.terrain !== undefined,
+        hasGridSize: gameStateData.gridSize !== undefined,
+        keys: Object.keys(gameStateData)
+      });
+      
+      // Update terrain if present and valid
+      if (gameStateData.terrain !== undefined) {
+        if (typeof gameStateData.terrain === 'object') {
+          setTerrain(gameStateData.terrain);
+        } else {
+          console.warn('📥 Received invalid terrain data:', gameStateData.terrain);
+        }
+      }
+      
+      // Update grid size if present and valid
+      if (gameStateData.gridSize !== undefined) {
+        const gridSize = parseInt(gameStateData.gridSize);
+        if (!isNaN(gridSize) && gridSize >= 10 && gridSize <= 50) {
+          setGridSize(gridSize);
+        } else {
+          console.warn('📥 Received invalid grid size:', gameStateData.gridSize);
+        }
+      }
+      
+      // Add notification to chat
+      setChatMessages(prev => [...prev, {
+        type: 'system',
+        name: 'System',
+        text: `Map updated by ${updatedBy || 'another player'}`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+      
+    } catch (error) {
+      console.error('💥 Error handling incoming game state update:', error);
     }
-    
-    // Update grid size if present
-    if (gameStateData.gridSize !== undefined) {
-      setGridSize(gameStateData.gridSize);
-    }
-    
-    // Add notification to chat
-    setChatMessages(prev => [...prev, {
-      type: 'system',
-      name: 'System',
-      text: `Map updated by ${updatedBy || 'another player'}`,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
   }, [setTerrain, setGridSize, setChatMessages]);
 
   const handleUserJoined = useCallback((userData) => {
-    // Add null check here
-    if (!userData) {
-      console.warn('📥 Received null user data for join event');
-      return;
-    }
+    try {
+      // Enhanced null and validity checks
+      if (!userData || typeof userData !== 'object') {
+        console.warn('📥 Received invalid user data for join event:', userData);
+        return;
+      }
 
-    setChatMessages(prev => [...prev, {
-      type: 'system',
-      name: 'System',
-      text: `${userData.userName || 'A player'} joined the session${userData.isDM ? ' as DM' : ''}`,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
+      const userName = userData.userName || userData.user_name || 'Unknown Player';
+      const isDM = userData.isDM || userData.is_dm || false;
+      
+      console.log(`📥 User joined:`, { userName, isDM });
+
+      setChatMessages(prev => [...prev, {
+        type: 'system',
+        name: 'System',
+        text: `${userName} joined the session${isDM ? ' as DM' : ''}`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+      
+    } catch (error) {
+      console.error('💥 Error handling user joined event:', error);
+    }
   }, [setChatMessages]);
 
   const handleUserLeft = useCallback((userData) => {
-    // Add null check here  
-    if (!userData) {
-      console.warn('📥 Received null user data for leave event');
-      return;
-    }
+    try {
+      // Enhanced null and validity checks
+      if (!userData || typeof userData !== 'object') {
+        console.warn('📥 Received invalid user data for leave event:', userData);
+        return;
+      }
 
-    setChatMessages(prev => [...prev, {
-      type: 'system',
-      name: 'System',
-      text: `A player left the session`,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
+      console.log(`📥 User left:`, userData);
+
+      setChatMessages(prev => [...prev, {
+        type: 'system',
+        name: 'System',
+        text: `A player left the session`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+      
+    } catch (error) {
+      console.error('💥 Error handling user left event:', error);
+    }
   }, [setChatMessages]);
 
-  // Set up real-time sync event handlers with error catching
+  // Enhanced session management handlers with better error handling
+  const handleSessionJoined = useCallback((newSessionId, userName) => {
+    try {
+      if (!newSessionId || !userName) {
+        console.warn('Session joined with incomplete data:', { newSessionId, userName });
+        return;
+      }
+      
+      console.log(`🎉 Joined session: ${newSessionId} as ${userName}`);
+      
+      setChatMessages(prev => [...prev, {
+        type: 'system',
+        name: 'System',
+        text: `Connected to session as ${userName}`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } catch (error) {
+      console.error('💥 Error handling session joined:', error);
+    }
+  }, [setChatMessages]);
+
+  const handleSessionLeft = useCallback(() => {
+    try {
+      console.log(`👋 Left session`);
+      
+      setChatMessages(prev => [...prev, {
+        type: 'system',
+        name: 'System',
+        text: `Disconnected from session`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } catch (error) {
+      console.error('💥 Error handling session left:', error);
+    }
+  }, [setChatMessages]);
+
+  // Set up real-time sync event handlers with enhanced error catching
   useEffect(() => {
     try {
-      if (setOnCharacterUpdate) setOnCharacterUpdate(handleIncomingCharacterUpdate);
-      if (setOnGameStateUpdate) setOnGameStateUpdate(handleIncomingGameStateUpdate);
-      if (setOnUserJoined) setOnUserJoined(handleUserJoined);
-      if (setOnUserLeft) setOnUserLeft(handleUserLeft);
+      if (setOnCharacterUpdate) {
+        setOnCharacterUpdate(handleIncomingCharacterUpdate);
+      }
+      if (setOnGameStateUpdate) {
+        setOnGameStateUpdate(handleIncomingGameStateUpdate);
+      }
+      if (setOnUserJoined) {
+        setOnUserJoined(handleUserJoined);
+      }
+      if (setOnUserLeft) {
+        setOnUserLeft(handleUserLeft);
+      }
+      
+      console.log('✅ Real-time sync event handlers registered');
     } catch (error) {
-      console.error('Error setting up real-time sync handlers:', error);
+      console.error('💥 Error setting up real-time sync handlers:', error);
     }
   }, [
     handleIncomingCharacterUpdate,
@@ -451,33 +556,10 @@ const App = () => {
     }
   }, [setGridSize, isSessionConnected, broadcastGameStateUpdate, terrain]);
 
-  // Session management handlers
-  const handleSessionJoined = useCallback((newSessionId, userName) => {
-    console.log(`🎉 Joined session: ${newSessionId} as ${userName}`);
-    
-    setChatMessages(prev => [...prev, {
-      type: 'system',
-      name: 'System',
-      text: `Connected to session as ${userName}`,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
-  }, [setChatMessages]);
-
-  const handleSessionLeft = useCallback(() => {
-    console.log(`👋 Left session`);
-    
-    setChatMessages(prev => [...prev, {
-      type: 'system',
-      name: 'System',
-      text: `Disconnected from session`,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
-  }, [setChatMessages]);
-
   // Enhanced character movement that broadcasts updates
   const handleCharacterMove = useCallback(async (characterId, x, y) => {
     // Find the character
-    const character = characters.find(c => c.id === characterId);
+    const character = characters.find(c => c && c.id === characterId);
     if (!character) {
       console.warn('Attempted to move character that does not exist:', characterId);
       return;
