@@ -1,23 +1,12 @@
-// src/hooks/useDatabase.js - Enhanced with debugging and better error handling
+// src/hooks/useDatabase.js - Updated for Netlify Functions architecture
 import { useState, useEffect } from 'react';
-
-// Note: Using dynamic imports for database functions to handle environments where they might not be available
-const importDatabaseFunctions = async () => {
-  try {
-    const dbModule = await import('../utils/database.js');
-    return dbModule;
-  } catch (error) {
-    console.warn('Database module not available:', error);
-    return null;
-  }
-};
+import * as db from '../utils/database.js';
 
 export const useDatabase = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
-  const [dbFunctions, setDbFunctions] = useState(null);
 
   // Initialize database connection on first load
   useEffect(() => {
@@ -26,89 +15,67 @@ export const useDatabase = () => {
         setIsLoading(true);
         setConnectionError(null);
         
-        // Check if we're in a browser environment
-        if (typeof window === 'undefined') {
-          console.log('⚠️ Database: Server-side environment detected, skipping database initialization');
-          setIsLoading(false);
-          return;
-        }
-
-        // Import database functions
-        console.log('🔄 Database: Loading database module...');
-        const db = await importDatabaseFunctions();
-        if (!db) {
-          throw new Error('Database module could not be loaded');
-        }
-        setDbFunctions(db);
-
-        // Check if we have the environment variable
-        // Note: NETLIFY_DATABASE_URL is automatically provided by Netlify when using @netlify/neon
-        console.log('🔍 Database: Checking for database configuration...');
+        console.log('🔄 Database: Testing connection through Netlify Function...');
         
-        // Check database health
-        console.log('📡 Database: Testing connection...');
+        // Test the connection
         const health = await db.checkDatabaseHealth();
         
         if (health.healthy) {
-          console.log('✅ Database: Connection successful');
+          console.log('✅ Database: Connection successful via Netlify Function');
           console.log('📅 Database: Server time:', health.timestamp);
           setIsConnected(true);
+          setIsInitialized(true);
 
-          // Initialize database tables
-          console.log('🔧 Database: Initializing tables...');
-          const initialized = await db.initDatabase();
-          setIsInitialized(initialized);
-          
-          if (initialized) {
-            console.log('✅ Database: Tables initialized successfully');
-            
-            // Get initial stats
-            try {
-              const stats = await db.getDatabaseStats();
-              if (stats) {
-                console.log('📊 Database: Current stats:', stats);
-              }
-            } catch (error) {
-              console.warn('⚠️ Database: Could not get stats:', error);
+          // Get initial stats
+          try {
+            const stats = await db.getDatabaseStats();
+            if (stats) {
+              console.log('📊 Database: Current stats:', stats);
             }
-          } else {
-            console.warn('⚠️ Database: Table initialization failed');
+          } catch (error) {
+            console.warn('⚠️ Database: Could not get stats:', error);
           }
         } else {
           throw new Error(health.error || 'Database health check failed');
         }
       } catch (error) {
-        console.error('💥 Database: Initialization failed:', error);
+        console.error('💥 Database: Connection failed:', error);
         setIsConnected(false);
         setIsInitialized(false);
         setConnectionError(error.message);
         
-        // Determine if this is a configuration issue vs availability issue
-        if (error.message.includes('NETLIFY_DATABASE_URL') || error.message.includes('environment')) {
-          console.log('💡 Database: This appears to be a configuration issue');
-          console.log('💡 Database: To set up a database, run: npx netlify db init');
-          console.log('💡 Database: Or set NETLIFY_DATABASE_URL in your environment');
+        // Provide helpful debugging information
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          console.log('🚨 Network Error: This could mean:');
+          console.log('   1. Netlify Functions are not running (if in dev mode, run: netlify dev)');
+          console.log('   2. The function deployment failed');
+          console.log('   3. CORS issues');
+        } else if (error.message.includes('NETLIFY_DATABASE_URL')) {
+          console.log('🚨 Database Configuration Error:');
+          console.log('   1. Run: netlify db init');
+          console.log('   2. Or set NETLIFY_DATABASE_URL in your environment');
         } else {
-          console.log('⚠️ Database: Using local storage fallback');
+          console.log('🚨 Unknown Error: Check the Netlify Function logs');
         }
       } finally {
         setIsLoading(false);
       }
     };
 
-    initializeDatabase();
+    // Add a small delay to ensure the function is ready
+    const timer = setTimeout(initializeDatabase, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   // Enhanced image operations with better error handling
   const uploadImage = async (imageData, imageType = 'sprite', name = 'image') => {
-    if (!isConnected || !dbFunctions) {
-      console.warn('Database: Upload failed - not connected');
+    if (!isConnected) {
       throw new Error('Database not connected');
     }
 
     try {
       console.log(`📤 Database: Uploading ${imageType} image: ${name}`);
-      const imageId = await dbFunctions.saveImage(imageData, imageType, name);
+      const imageId = await db.saveImage(imageData, imageType, name);
       
       if (imageId) {
         console.log(`✅ Database: Image uploaded successfully: ${imageId}`);
@@ -123,13 +90,13 @@ export const useDatabase = () => {
   };
 
   const getImage = async (imageId) => {
-    if (!isConnected || !dbFunctions || !imageId) {
+    if (!isConnected || !imageId) {
       return null;
     }
 
     try {
       console.log(`📥 Database: Loading image: ${imageId}`);
-      const imageData = await dbFunctions.loadImage(imageId);
+      const imageData = await db.loadImage(imageId);
       
       if (imageData) {
         console.log(`✅ Database: Image loaded successfully: ${imageId}`);
@@ -146,14 +113,14 @@ export const useDatabase = () => {
 
   // Enhanced character operations
   const saveCharacterToDb = async (character) => {
-    if (!isConnected || !dbFunctions) {
+    if (!isConnected) {
       console.warn('Database: Character save failed - not connected');
       return false;
     }
 
     try {
       console.log(`📤 Database: Saving character: ${character.name} (${character.id})`);
-      const success = await dbFunctions.saveCharacter(character);
+      const success = await db.saveCharacter(character);
       
       if (success) {
         console.log(`✅ Database: Character saved successfully: ${character.name}`);
@@ -169,14 +136,14 @@ export const useDatabase = () => {
   };
 
   const loadCharactersFromDb = async () => {
-    if (!isConnected || !dbFunctions) {
+    if (!isConnected) {
       console.log('Database: Character load skipped - not connected');
       return [];
     }
 
     try {
       console.log('📥 Database: Loading characters...');
-      const characters = await dbFunctions.loadCharacters();
+      const characters = await db.loadCharacters();
       console.log(`✅ Database: Loaded ${characters.length} characters`);
       return characters;
     } catch (error) {
@@ -186,14 +153,14 @@ export const useDatabase = () => {
   };
 
   const deleteCharacterFromDb = async (characterId) => {
-    if (!isConnected || !dbFunctions) {
+    if (!isConnected) {
       console.warn('Database: Character delete failed - not connected');
       return false;
     }
 
     try {
       console.log(`🗑️ Database: Deleting character: ${characterId}`);
-      const success = await dbFunctions.deleteCharacter(characterId);
+      const success = await db.deleteCharacter(characterId);
       
       if (success) {
         console.log(`✅ Database: Character deleted successfully: ${characterId}`);
@@ -208,7 +175,7 @@ export const useDatabase = () => {
 
   // Enhanced game state operations
   const saveGameState = async (gameData) => {
-    if (!isConnected || !dbFunctions) {
+    if (!isConnected) {
       console.log('Database: Game state save skipped - not connected');
       return false;
     }
@@ -222,7 +189,7 @@ export const useDatabase = () => {
         timestamp: new Date().toISOString()
       };
 
-      const success = await dbFunctions.saveGameSession(sessionData);
+      const success = await db.saveGameSession(sessionData);
       
       if (success) {
         console.log('✅ Database: Game state saved successfully');
@@ -236,14 +203,14 @@ export const useDatabase = () => {
   };
 
   const loadGameState = async () => {
-    if (!isConnected || !dbFunctions) {
+    if (!isConnected) {
       console.log('Database: Game state load skipped - not connected');
       return null;
     }
 
     try {
       console.log('📥 Database: Loading game state...');
-      const gameData = await dbFunctions.loadGameSession('default-session');
+      const gameData = await db.loadGameSession('default-session');
       
       if (gameData) {
         console.log('✅ Database: Game state loaded successfully');
@@ -270,15 +237,40 @@ export const useDatabase = () => {
     const status = getConnectionStatus();
     switch (status) {
       case 'connecting':
-        return 'Connecting to database...';
+        return 'Connecting to database via Netlify Function...';
       case 'connected':
-        return 'Connected to cloud database';
+        return 'Connected to cloud database via Netlify Function';
       case 'error':
         return `Database error: ${connectionError}`;
       case 'disconnected':
         return 'Database not available - using local storage';
       default:
         return 'Unknown status';
+    }
+  };
+
+  // Test connection function for debugging
+  const testConnection = async () => {
+    try {
+      setIsLoading(true);
+      const result = await db.testConnection();
+      
+      if (result.success) {
+        setIsConnected(true);
+        setIsInitialized(true);
+        setConnectionError(null);
+      } else {
+        setIsConnected(false);
+        setConnectionError(result.message);
+      }
+      
+      return result;
+    } catch (error) {
+      setIsConnected(false);
+      setConnectionError(error.message);
+      return { success: false, message: error.message };
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -306,13 +298,16 @@ export const useDatabase = () => {
     
     // Debug helpers
     getDatabaseStats: async () => {
-      if (!isConnected || !dbFunctions) return null;
+      if (!isConnected) return null;
       try {
-        return await dbFunctions.getDatabaseStats();
+        return await db.getDatabaseStats();
       } catch (error) {
         console.error('Database stats error:', error);
         return null;
       }
-    }
+    },
+    
+    // Test connection for debugging
+    testConnection
   };
 };
