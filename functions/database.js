@@ -1,4 +1,4 @@
-// netlify/functions/database.js - Server-side database API
+// netlify/functions/database.js - Enhanced with real-time multiplayer support
 import { neon } from '@netlify/neon';
 
 const sql = neon(); // This will work on the server-side with NETLIFY_DATABASE_URL
@@ -10,10 +10,12 @@ const initDatabase = async () => {
     await sql`
       CREATE TABLE IF NOT EXISTS characters (
         id VARCHAR PRIMARY KEY,
+        session_id VARCHAR NOT NULL DEFAULT 'default',
         name VARCHAR NOT NULL,
         data JSONB NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        updated_at TIMESTAMP DEFAULT NOW(),
+        updated_by VARCHAR DEFAULT 'system'
       )
     `;
 
@@ -21,6 +23,7 @@ const initDatabase = async () => {
     await sql`
       CREATE TABLE IF NOT EXISTS images (
         id VARCHAR PRIMARY KEY,
+        session_id VARCHAR DEFAULT 'default',
         name VARCHAR NOT NULL,
         type VARCHAR NOT NULL,
         data TEXT NOT NULL,
@@ -38,9 +41,42 @@ const initDatabase = async () => {
         name VARCHAR NOT NULL,
         data JSONB NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        updated_at TIMESTAMP DEFAULT NOW(),
+        updated_by VARCHAR DEFAULT 'system'
       )
     `;
+
+    // Session users table - track who's in each session
+    await sql`
+      CREATE TABLE IF NOT EXISTS session_users (
+        id VARCHAR PRIMARY KEY,
+        session_id VARCHAR NOT NULL,
+        user_name VARCHAR NOT NULL,
+        user_color VARCHAR DEFAULT '#6366f1',
+        last_seen TIMESTAMP DEFAULT NOW(),
+        is_dm BOOLEAN DEFAULT false,
+        cursor_x INTEGER DEFAULT 0,
+        cursor_y INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
+    // Session updates table - track changes for real-time sync
+    await sql`
+      CREATE TABLE IF NOT EXISTS session_updates (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR NOT NULL,
+        update_type VARCHAR NOT NULL,
+        data JSONB NOT NULL,
+        updated_by VARCHAR NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
+    // Create indexes for better performance
+    await sql`CREATE INDEX IF NOT EXISTS idx_characters_session ON characters(session_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_session_users_session ON session_users(session_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_session_updates_session ON session_updates(session_id, created_at DESC)`;
 
     return true;
   } catch (error) {
@@ -64,6 +100,8 @@ export default async (request, context) => {
   try {
     const url = new URL(request.url);
     const operation = url.searchParams.get('operation');
+    const sessionId = url.searchParams.get('sessionId') || 'default';
+    const userId = url.searchParams.get('userId') || 'anonymous';
     
     // Initialize database if needed
     await initDatabase();
@@ -77,15 +115,103 @@ export default async (request, context) => {
         }), { headers: { ...headers, 'Content-Type': 'application/json' } });
 
       case 'stats':
-        const [charCount] = await sql`SELECT COUNT(*) as count FROM characters`;
-        const [imageCount] = await sql`SELECT COUNT(*) as count FROM images`;
+        const [charCount] = await sql`SELECT COUNT(*) as count FROM characters WHERE session_id = ${sessionId}`;
+        const [imageCount] = await sql`SELECT COUNT(*) as count FROM images WHERE session_id = ${sessionId}`;
+        const [userCount] = await sql`SELECT COUNT(*) as count FROM session_users WHERE session_id = ${sessionId} AND last_seen > NOW() - INTERVAL '5 minutes'`;
         const stats = {
           characters: parseInt(charCount.count),
           images: parseInt(imageCount.count),
-          chatMessages: 0,
-          combatMessages: 0
+          activeUsers: parseInt(userCount.count),
+          sessionId
         };
         return new Response(JSON.stringify(stats), { 
+          headers: { ...headers, 'Content-Type': 'application/json' } 
+        });
+
+      // Session Management
+      case 'join-session':
+        if (request.method === 'POST') {
+          const { userName, userColor, isDM } = await request.json();
+          
+          // Upsert user in session
+          await sql`
+            INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
+            VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM}, NOW())
+            ON CONFLICT (id) 
+            DO UPDATE SET 
+              user_name = ${userName},
+              user_color = ${userColor},
+              is_dm = ${isDM},
+              last_seen = NOW()
+          `;
+
+          // Add session update
+          await sql`
+            INSERT INTO session_updates (session_id, update_type, data, updated_by)
+            VALUES (${sessionId}, 'user_joined', ${JSON.stringify({ userName, userColor, isDM })}, ${userId})
+          `;
+
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+        break;
+
+      case 'leave-session':
+        if (request.method === 'POST') {
+          await sql`DELETE FROM session_users WHERE id = ${userId}`;
+          
+          // Add session update
+          await sql`
+            INSERT INTO session_updates (session_id, update_type, data, updated_by)
+            VALUES (${sessionId}, 'user_left', ${JSON.stringify({ userId })}, ${userId})
+          `;
+
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+        break;
+
+      case 'heartbeat':
+        if (request.method === 'POST') {
+          const { cursorX, cursorY } = await request.json();
+          
+          await sql`
+            UPDATE session_users 
+            SET last_seen = NOW(), cursor_x = ${cursorX || 0}, cursor_y = ${cursorY || 0}
+            WHERE id = ${userId}
+          `;
+
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+        break;
+
+      case 'get-session-users':
+        const users = await sql`
+          SELECT * FROM session_users 
+          WHERE session_id = ${sessionId} 
+          AND last_seen > NOW() - INTERVAL '5 minutes'
+          ORDER BY created_at ASC
+        `;
+        return new Response(JSON.stringify(users), { 
+          headers: { ...headers, 'Content-Type': 'application/json' } 
+        });
+
+      // Real-time sync
+      case 'get-updates':
+        const since = url.searchParams.get('since') || '1970-01-01';
+        const updates = await sql`
+          SELECT * FROM session_updates 
+          WHERE session_id = ${sessionId} 
+          AND created_at > ${since}
+          AND updated_by != ${userId}
+          ORDER BY created_at ASC
+          LIMIT 50
+        `;
+        return new Response(JSON.stringify(updates), { 
           headers: { ...headers, 'Content-Type': 'application/json' } 
         });
 
@@ -99,8 +225,8 @@ export default async (request, context) => {
           const sizeBytes = Math.round((imageData.length * 3) / 4);
           
           await sql`
-            INSERT INTO images (id, name, type, data, mime_type, size_bytes, updated_at)
-            VALUES (${imageId}, ${name}, ${imageType}, ${imageData}, ${mimeType}, ${sizeBytes}, NOW())
+            INSERT INTO images (id, session_id, name, type, data, mime_type, size_bytes, updated_at)
+            VALUES (${imageId}, ${sessionId}, ${name}, ${imageType}, ${imageData}, ${mimeType}, ${sizeBytes}, NOW())
           `;
           
           return new Response(JSON.stringify({ imageId }), { 
@@ -123,14 +249,22 @@ export default async (request, context) => {
         if (request.method === 'POST') {
           const character = await request.json();
           await sql`
-            INSERT INTO characters (id, name, data, updated_at)
-            VALUES (${character.id}, ${character.name}, ${JSON.stringify(character)}, NOW())
+            INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
+            VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, NOW(), ${userId})
             ON CONFLICT (id) 
             DO UPDATE SET 
               name = ${character.name},
               data = ${JSON.stringify(character)},
-              updated_at = NOW()
+              updated_at = NOW(),
+              updated_by = ${userId}
           `;
+
+          // Add session update for real-time sync
+          await sql`
+            INSERT INTO session_updates (session_id, update_type, data, updated_by)
+            VALUES (${sessionId}, 'character_updated', ${JSON.stringify(character)}, ${userId})
+          `;
+          
           return new Response(JSON.stringify({ success: true }), { 
             headers: { ...headers, 'Content-Type': 'application/json' } 
           });
@@ -138,7 +272,11 @@ export default async (request, context) => {
         break;
 
       case 'load-characters':
-        const characters = await sql`SELECT * FROM characters ORDER BY updated_at DESC`;
+        const characters = await sql`
+          SELECT * FROM characters 
+          WHERE session_id = ${sessionId}
+          ORDER BY updated_at DESC
+        `;
         return new Response(JSON.stringify(characters.map(row => row.data)), { 
           headers: { ...headers, 'Content-Type': 'application/json' } 
         });
@@ -146,12 +284,66 @@ export default async (request, context) => {
       case 'delete-character':
         if (request.method === 'DELETE') {
           const characterId = url.searchParams.get('characterId');
-          await sql`DELETE FROM characters WHERE id = ${characterId}`;
+          await sql`DELETE FROM characters WHERE id = ${characterId} AND session_id = ${sessionId}`;
+          
+          // Add session update
+          await sql`
+            INSERT INTO session_updates (session_id, update_type, data, updated_by)
+            VALUES (${sessionId}, 'character_deleted', ${JSON.stringify({ characterId })}, ${userId})
+          `;
+          
           return new Response(JSON.stringify({ success: true }), { 
             headers: { ...headers, 'Content-Type': 'application/json' } 
           });
         }
         break;
+
+      case 'save-game-state':
+        if (request.method === 'POST') {
+          const gameState = await request.json();
+          await sql`
+            INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
+            VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, NOW(), ${userId})
+            ON CONFLICT (id) 
+            DO UPDATE SET 
+              data = ${JSON.stringify(gameState)},
+              updated_at = NOW(),
+              updated_by = ${userId}
+          `;
+
+          // Add session update
+          await sql`
+            INSERT INTO session_updates (session_id, update_type, data, updated_by)
+            VALUES (${sessionId}, 'game_state_updated', ${JSON.stringify({ terrain: gameState.terrain, gridSize: gameState.gridSize })}, ${userId})
+          `;
+          
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
+        break;
+
+      case 'load-game-state':
+        const [gameSession] = await sql`
+          SELECT * FROM game_sessions WHERE id = ${sessionId}
+        `;
+        return new Response(JSON.stringify(gameSession ? gameSession.data : null), { 
+          headers: { ...headers, 'Content-Type': 'application/json' } 
+        });
+
+      // Cleanup old session updates (called periodically)
+      case 'cleanup':
+        await sql`
+          DELETE FROM session_updates 
+          WHERE created_at < NOW() - INTERVAL '1 hour'
+        `;
+        await sql`
+          DELETE FROM session_users 
+          WHERE last_seen < NOW() - INTERVAL '10 minutes'
+        `;
+        return new Response(JSON.stringify({ success: true }), { 
+          headers: { ...headers, 'Content-Type': 'application/json' } 
+        });
 
       default:
         return new Response(JSON.stringify({ error: 'Unknown operation' }), { 
