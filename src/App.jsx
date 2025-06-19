@@ -1,4 +1,4 @@
-// src/App.jsx - Enhanced with real-time multiplayer support and improved image handling
+// src/App.jsx - Fixed with proper null checking
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -26,8 +26,47 @@ import { useDatabase } from './hooks/useDatabase';
 import { useRealtimeSync } from './hooks/useRealtimeSync';
 
 const App = () => {
-  // Real-time multiplayer hook
-  const realtimeSync = useRealtimeSync();
+  // Safely initialize hooks with error boundaries
+  let realtimeSync, databaseHook;
+  
+  try {
+    realtimeSync = useRealtimeSync();
+  } catch (error) {
+    console.error('Error initializing realtime sync:', error);
+    realtimeSync = {
+      sessionId: 'offline',
+      isConnected: false,
+      userName: 'Local Player',
+      isDM: true,
+      broadcastCharacterUpdate: async () => false,
+      broadcastCharacterDelete: async () => false,
+      broadcastGameStateUpdate: async () => false,
+      setOnCharacterUpdate: () => {},
+      setOnGameStateUpdate: () => {},
+      setOnUserJoined: () => {},
+      setOnUserLeft: () => {}
+    };
+  }
+
+  try {
+    databaseHook = useDatabase();
+  } catch (error) {
+    console.error('Error initializing database:', error);
+    databaseHook = {
+      isConnected: false,
+      isLoading: false,
+      connectionStatus: 'error',
+      statusMessage: 'Database initialization failed',
+      uploadImage: async () => null,
+      getImage: async () => null,
+      saveCharacterToDb: async () => false,
+      loadCharactersFromDb: async () => [],
+      deleteCharacterFromDb: async () => false,
+      saveGameState: async () => false,
+      loadGameState: async () => null
+    };
+  }
+
   const {
     sessionId,
     isConnected: isSessionConnected,
@@ -42,8 +81,6 @@ const App = () => {
     setOnUserLeft
   } = realtimeSync;
 
-  // Database integration
-  const databaseHook = useDatabase();
   const {
     isConnected: isDatabaseConnected,
     isLoading: isDatabaseLoading,
@@ -157,21 +194,29 @@ const App = () => {
     return imageReference;
   };
 
-  // Real-time sync event handlers
+  // FIXED: Real-time sync event handlers with proper null checking
   const handleIncomingCharacterUpdate = useCallback((characterData, updatedBy) => {
+    // Add null check here
+    if (!characterData) {
+      console.warn('📥 Received null character data, ignoring update');
+      return;
+    }
+
     console.log(`📥 Incoming character update from ${updatedBy}:`, characterData);
     
     if (characterData._deleted) {
       // Handle character deletion
-      deleteCharacter(characterData.id);
-      
-      // Add notification to chat
-      setChatMessages(prev => [...prev, {
-        type: 'system',
-        name: 'System',
-        text: `Character deleted by ${updatedBy}`,
-        timestamp: new Date().toLocaleTimeString()
-      }]);
+      if (characterData.id) {
+        deleteCharacter(characterData.id);
+        
+        // Add notification to chat
+        setChatMessages(prev => [...prev, {
+          type: 'system',
+          name: 'System',
+          text: `Character deleted by ${updatedBy || 'another player'}`,
+          timestamp: new Date().toLocaleTimeString()
+        }]);
+      }
     } else {
       // Handle character update/creation
       updateCharacter(characterData);
@@ -182,7 +227,7 @@ const App = () => {
         setChatMessages(prev => [...prev, {
           type: 'system',
           name: 'System',
-          text: `${characterData.name} added by ${updatedBy}`,
+          text: `${characterData.name || 'A character'} added by ${updatedBy || 'another player'}`,
           timestamp: new Date().toLocaleTimeString()
         }]);
       }
@@ -190,6 +235,12 @@ const App = () => {
   }, [updateCharacter, deleteCharacter, characters, setChatMessages]);
 
   const handleIncomingGameStateUpdate = useCallback((gameStateData, updatedBy) => {
+    // Add null check here
+    if (!gameStateData) {
+      console.warn('📥 Received null game state data, ignoring update');
+      return;
+    }
+
     console.log(`📥 Incoming game state update from ${updatedBy}:`, gameStateData);
     
     // Update terrain if present
@@ -206,21 +257,33 @@ const App = () => {
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
-      text: `Map updated by ${updatedBy}`,
+      text: `Map updated by ${updatedBy || 'another player'}`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   }, [setTerrain, setGridSize, setChatMessages]);
 
   const handleUserJoined = useCallback((userData) => {
+    // Add null check here
+    if (!userData) {
+      console.warn('📥 Received null user data for join event');
+      return;
+    }
+
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
-      text: `${userData.userName} joined the session${userData.isDM ? ' as DM' : ''}`,
+      text: `${userData.userName || 'A player'} joined the session${userData.isDM ? ' as DM' : ''}`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   }, [setChatMessages]);
 
   const handleUserLeft = useCallback((userData) => {
+    // Add null check here  
+    if (!userData) {
+      console.warn('📥 Received null user data for leave event');
+      return;
+    }
+
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
@@ -229,12 +292,16 @@ const App = () => {
     }]);
   }, [setChatMessages]);
 
-  // Set up real-time sync event handlers
+  // Set up real-time sync event handlers with error catching
   useEffect(() => {
-    setOnCharacterUpdate(handleIncomingCharacterUpdate);
-    setOnGameStateUpdate(handleIncomingGameStateUpdate);
-    setOnUserJoined(handleUserJoined);
-    setOnUserLeft(handleUserLeft);
+    try {
+      if (setOnCharacterUpdate) setOnCharacterUpdate(handleIncomingCharacterUpdate);
+      if (setOnGameStateUpdate) setOnGameStateUpdate(handleIncomingGameStateUpdate);
+      if (setOnUserJoined) setOnUserJoined(handleUserJoined);
+      if (setOnUserLeft) setOnUserLeft(handleUserLeft);
+    } catch (error) {
+      console.error('Error setting up real-time sync handlers:', error);
+    }
   }, [
     handleIncomingCharacterUpdate,
     handleIncomingGameStateUpdate,
@@ -248,21 +315,31 @@ const App = () => {
 
   // Enhanced character update function that broadcasts to other users and resolves images
   const handleCharacterUpdate = useCallback(async (character) => {
+    // Add null check
+    if (!character) {
+      console.warn('Attempted to update null character');
+      return;
+    }
+
     let updatedCharacter = { ...character };
     
     // Resolve image references if they're database IDs
-    if (character.sprite && character.sprite.startsWith('img_')) {
-      const resolvedSprite = await resolveImageData(character.sprite);
-      if (resolvedSprite !== character.sprite) {
-        updatedCharacter.sprite = resolvedSprite;
+    try {
+      if (character.sprite && character.sprite.startsWith('img_')) {
+        const resolvedSprite = await resolveImageData(character.sprite);
+        if (resolvedSprite !== character.sprite) {
+          updatedCharacter.sprite = resolvedSprite;
+        }
       }
-    }
-    
-    if (character.portrait && character.portrait.startsWith('img_')) {
-      const resolvedPortrait = await resolveImageData(character.portrait);
-      if (resolvedPortrait !== character.portrait) {
-        updatedCharacter.portrait = resolvedPortrait;
+      
+      if (character.portrait && character.portrait.startsWith('img_')) {
+        const resolvedPortrait = await resolveImageData(character.portrait);
+        if (resolvedPortrait !== character.portrait) {
+          updatedCharacter.portrait = resolvedPortrait;
+        }
       }
+    } catch (error) {
+      console.warn('Error resolving character images:', error);
     }
     
     // Update locally first
@@ -274,7 +351,7 @@ const App = () => {
     }
     
     // Broadcast to other users if connected
-    if (isSessionConnected) {
+    if (isSessionConnected && broadcastCharacterUpdate) {
       try {
         await broadcastCharacterUpdate(character); // Broadcast original with database IDs
         console.log(`📤 Broadcasted character update: ${character.name}`);
@@ -284,7 +361,7 @@ const App = () => {
     }
     
     // Save to database if connected (for persistence) - save original with database IDs
-    if (isDatabaseConnected) {
+    if (isDatabaseConnected && saveCharacterToDb) {
       try {
         await saveCharacterToDb(character);
         console.log(`💾 Character ${character.name} saved to database`);
@@ -304,11 +381,17 @@ const App = () => {
 
   // Enhanced character delete function
   const handleCharacterDelete = useCallback(async (characterId) => {
+    // Add null check
+    if (!characterId) {
+      console.warn('Attempted to delete character with null ID');
+      return;
+    }
+
     // Delete locally first
     deleteCharacter(characterId);
     
     // Broadcast to other users if connected
-    if (isSessionConnected) {
+    if (isSessionConnected && broadcastCharacterDelete) {
       try {
         await broadcastCharacterDelete(characterId);
         console.log(`📤 Broadcasted character deletion: ${characterId}`);
@@ -318,7 +401,7 @@ const App = () => {
     }
     
     // Delete from database if connected
-    if (isDatabaseConnected) {
+    if (isDatabaseConnected && deleteCharacterFromDb) {
       try {
         await deleteCharacterFromDb(characterId);
         console.log(`🗑️ Character deleted from database: ${characterId}`);
@@ -340,7 +423,7 @@ const App = () => {
     setTerrain(newTerrain);
     
     // Broadcast to other users if connected
-    if (isSessionConnected) {
+    if (isSessionConnected && broadcastGameStateUpdate) {
       try {
         const gameState = { terrain: newTerrain, gridSize };
         await broadcastGameStateUpdate(gameState);
@@ -357,7 +440,7 @@ const App = () => {
     setGridSize(newGridSize);
     
     // Broadcast to other users if connected
-    if (isSessionConnected) {
+    if (isSessionConnected && broadcastGameStateUpdate) {
       try {
         const gameState = { terrain, gridSize: newGridSize };
         await broadcastGameStateUpdate(gameState);
@@ -395,7 +478,10 @@ const App = () => {
   const handleCharacterMove = useCallback(async (characterId, x, y) => {
     // Find the character
     const character = characters.find(c => c.id === characterId);
-    if (!character) return;
+    if (!character) {
+      console.warn('Attempted to move character that does not exist:', characterId);
+      return;
+    }
     
     // Update position
     const updatedCharacter = { ...character, x, y };
@@ -479,6 +565,11 @@ const App = () => {
 
   // Modified save function for character modal
   const handleCharacterSave = async (savedCharacter) => {
+    if (!savedCharacter) {
+      console.warn('Attempted to save null character');
+      return;
+    }
+
     let characterToSave = { ...savedCharacter };
     
     // If we have database IDs from recent uploads, use those for saving
@@ -509,7 +600,7 @@ const App = () => {
 
   // Load initial data when session is connected
   useEffect(() => {
-    if (isSessionConnected && isDatabaseConnected) {
+    if (isSessionConnected && isDatabaseConnected && loadCharactersFromDb && loadGameState && getImage) {
       // Load session-specific data
       const loadSessionData = async () => {
         try {
@@ -517,10 +608,12 @@ const App = () => {
           
           // Load characters
           const sessionCharacters = await loadCharactersFromDb();
-          if (sessionCharacters.length > 0) {
+          if (sessionCharacters && sessionCharacters.length > 0) {
             // Resolve image references for characters
             const charactersWithImages = await Promise.all(
               sessionCharacters.map(async (char) => {
+                if (!char) return null; // Skip null characters
+                
                 const updatedChar = { ...char };
                 
                 // Load sprite if it's a database reference
@@ -551,8 +644,11 @@ const App = () => {
               })
             );
             
-            setCharacters(charactersWithImages);
-            console.log(`✅ Loaded ${charactersWithImages.length} characters for session`);
+            // Filter out any null characters
+            const validCharacters = charactersWithImages.filter(char => char !== null);
+            
+            setCharacters(validCharacters);
+            console.log(`✅ Loaded ${validCharacters.length} characters for session`);
           }
           
           // Load game state
@@ -576,19 +672,21 @@ const App = () => {
 
   // Load game state from database on startup (for non-session mode)
   useEffect(() => {
-    const loadGameData = async () => {
-      if (isDatabaseConnected && !isDatabaseLoading && !isSessionConnected) {
+    if (isDatabaseConnected && !isDatabaseLoading && !isSessionConnected && loadCharactersFromDb && loadGameState && getImage) {
+      const loadGameData = async () => {
         try {
           console.log('🔄 Loading game data from database...');
           
           // Load characters from database
           const dbCharacters = await loadCharactersFromDb();
-          if (dbCharacters.length > 0) {
+          if (dbCharacters && dbCharacters.length > 0) {
             console.log(`✅ Loaded ${dbCharacters.length} characters from database`);
             
             // Resolve image references for characters
             const charactersWithImages = await Promise.all(
               dbCharacters.map(async (char) => {
+                if (!char) return null; // Skip null characters
+                
                 const updatedChar = { ...char };
                 
                 // Load sprite if it's a database reference
@@ -619,7 +717,10 @@ const App = () => {
               })
             );
             
-            setCharacters(charactersWithImages);
+            // Filter out any null characters
+            const validCharacters = charactersWithImages.filter(char => char !== null);
+            
+            setCharacters(validCharacters);
           }
           
           // Load game session data
@@ -638,15 +739,15 @@ const App = () => {
         } catch (error) {
           console.warn('⚠️ Failed to load game data from database:', error);
         }
-      }
-    };
+      };
 
-    loadGameData();
+      loadGameData();
+    }
   }, [isDatabaseConnected, isDatabaseLoading, isSessionConnected]);
 
   // Auto-save game state to database periodically
   useEffect(() => {
-    if (!isDatabaseConnected) return;
+    if (!isDatabaseConnected || !saveGameState) return;
 
     const autoSave = async () => {
       try {
@@ -689,6 +790,11 @@ const App = () => {
 
   // Enhanced makeCharacterSpeak that also adds to chat
   const handleMakeCharacterSpeak = (character, text) => {
+    if (!character || !text) {
+      console.warn('Attempted to make character speak with invalid data');
+      return;
+    }
+
     makeCharacterSpeak(character, text);
     setChatMessages(prev => [...prev, {
       type: 'character',
@@ -718,15 +824,20 @@ const App = () => {
   };
 
   const handleAddMonster = async (monster) => {
+    if (!monster) {
+      console.warn('Attempted to add null monster');
+      return;
+    }
+
     let x = Math.floor(Math.random() * (gridSize - 5)) + 2;
     let y = Math.floor(Math.random() * (gridSize - 5)) + 2;
     
-    const occupied = characters.some(char => char.x === x && char.y === y);
+    const occupied = characters.some(char => char && char.x === x && char.y === y);
     if (occupied) {
       for (let attempts = 0; attempts < 10; attempts++) {
         x = Math.floor(Math.random() * gridSize);
         y = Math.floor(Math.random() * gridSize);
-        if (!characters.some(char => char.x === x && char.y === y)) {
+        if (!characters.some(char => char && char.x === x && char.y === y)) {
           break;
         }
       }
@@ -742,7 +853,7 @@ const App = () => {
     
     setCombatMessages(prev => [...prev, {
       type: 'spawn',
-      text: `${monster.name} appears on the battlefield!`,
+      text: `${monster.name || 'A monster'} appears on the battlefield!`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   };
@@ -757,6 +868,11 @@ const App = () => {
   };
 
   const handleAttack = (combatResult, targetId, damage) => {
+    if (!combatResult) {
+      console.warn('Received null combat result');
+      return;
+    }
+
     setCombatMessages(prev => [...prev, {
       ...combatResult,
       type: combatResult.type || 'attack',
@@ -764,7 +880,7 @@ const App = () => {
     }]);
 
     if (targetId) {
-      const target = characters.find(char => char.id === targetId);
+      const target = characters.find(char => char && char.id === targetId);
       if (target) {
         const oldHp = target.hp || target.maxHp;
         let newHp;
@@ -808,6 +924,11 @@ const App = () => {
   };
 
   const handleCastSpell = (spellResult, targetId, effect) => {
+    if (!spellResult) {
+      console.warn('Received null spell result');
+      return;
+    }
+
     setCombatMessages(prev => [...prev, {
       ...spellResult,
       timestamp: new Date().toLocaleTimeString()
@@ -842,10 +963,16 @@ const App = () => {
   };
 
   const handleTakeLoot = (lootItems) => {
+    if (!lootItems || !Array.isArray(lootItems)) {
+      console.warn('Invalid loot items provided');
+      return;
+    }
+
     let receivingCharacter = currentActor;
     
     if (!receivingCharacter || (receivingCharacter.hp !== undefined ? receivingCharacter.hp : receivingCharacter.maxHp) <= 0) {
       receivingCharacter = characters.find(char => {
+        if (!char) return false;
         const hp = char.hp !== undefined ? char.hp : char.maxHp;
         return hp > 0 && !char.isMonster;
       });
@@ -860,6 +987,8 @@ const App = () => {
     const currencyToAdd = { copper: 0, silver: 0, gold: 0 };
 
     lootItems.forEach(item => {
+      if (!item || !item.name) return;
+      
       const itemName = item.name.toLowerCase();
       if (itemName.includes('copper pieces') || itemName.includes('copper coins') || itemName === 'cp') {
         currencyToAdd.copper += item.actualQuantity || 1;
@@ -870,7 +999,7 @@ const App = () => {
       } else {
         regularItems.push({
           ...item,
-          source: lootingCharacter.name,
+          source: lootingCharacter?.name || 'Unknown',
           dateObtained: new Date().toLocaleString(),
           id: `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         });
@@ -907,20 +1036,22 @@ const App = () => {
 
     setCombatMessages(prev => [...prev, {
       type: 'loot',
-      text: `${receivingCharacter.name} looted ${lootSummary.join(', ')} from ${lootingCharacter.name}`,
+      text: `${receivingCharacter.name} looted ${lootSummary.join(', ')} from ${lootingCharacter?.name || 'unknown source'}`,
       items: lootItems.map(item => `${item.name} x${item.actualQuantity}`),
       timestamp: new Date().toLocaleTimeString()
     }]);
 
-    handleCharacterUpdate({
-      ...lootingCharacter,
-      looted: true
-    });
+    if (lootingCharacter) {
+      handleCharacterUpdate({
+        ...lootingCharacter,
+        looted: true
+      });
+    }
     
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
-      text: `${receivingCharacter.name} obtained ${lootSummary.join(', ')} from ${lootingCharacter.name}`,
+      text: `${receivingCharacter.name} obtained ${lootSummary.join(', ')} from ${lootingCharacter?.name || 'unknown source'}`,
       timestamp: new Date().toLocaleTimeString()
     }]);
   };
@@ -930,7 +1061,9 @@ const App = () => {
   };
 
   const addSpellToCharacter = (characterId, spell) => {
-    const character = characters.find(c => c.id === characterId);
+    if (!characterId || !spell) return;
+    
+    const character = characters.find(c => c && c.id === characterId);
     if (character) {
       handleCharacterUpdate({
         ...character,
@@ -940,7 +1073,9 @@ const App = () => {
   };
 
   const removeSpellFromCharacter = (characterId, spellIndex) => {
-    const character = characters.find(c => c.id === characterId);
+    if (!characterId || spellIndex < 0) return;
+    
+    const character = characters.find(c => c && c.id === characterId);
     if (character) {
       handleCharacterUpdate({
         ...character,
@@ -950,6 +1085,8 @@ const App = () => {
   };
 
   const handleCombatMessage = (message) => {
+    if (!message) return;
+    
     setCombatMessages(prev => [...prev, message]);
   };
 
@@ -990,7 +1127,7 @@ const App = () => {
           <ConditionsPanel
             selectedCharacter={currentActor}
             onAddCondition={(characterId, condition) => {
-              const character = characters.find(c => c.id === characterId);
+              const character = characters.find(c => c && c.id === characterId);
               if (character) {
                 const updatedCharacter = {
                   ...character,
@@ -1000,7 +1137,7 @@ const App = () => {
               }
             }}
             onRemoveCondition={(characterId, conditionIndex) => {
-              const character = characters.find(c => c.id === characterId);
+              const character = characters.find(c => c && c.id === characterId);
               if (character) {
                 const updatedCharacter = {
                   ...character,
