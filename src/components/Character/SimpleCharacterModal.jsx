@@ -1,5 +1,5 @@
-// src/components/Character/SimpleCharacterModal.jsx - Enhanced with full player access
-import React, { useState } from 'react';
+// src/components/Character/SimpleCharacterModal.jsx - Fixed with proper image display
+import React, { useState, useEffect } from 'react';
 import { Upload, Trash2, X, Plus, Sword, Sparkles, Heart } from 'lucide-react';
 import { colorOptions, borderColorOptions } from '../../utils/constants';
 import { getStatModifier, getHealthColor } from '../../utils/helpers';
@@ -13,7 +13,10 @@ const SimpleCharacterModal = ({
   onClose,
   onUpload,
   onAttack,
-  onCastSpell
+  onCastSpell,
+  // Add these props to get database image resolution
+  isDatabaseConnected = false,
+  getImage = null
 }) => {
   // Safely handle character data
   const safeCharacter = character || {
@@ -41,6 +44,75 @@ const SimpleCharacterModal = ({
 
   const [editingCharacter, setEditingCharacter] = useState(safeCharacter);
   const [activeTab, setActiveTab] = useState('stats');
+  
+  // State for resolved images
+  const [resolvedSprite, setResolvedSprite] = useState(null);
+  const [resolvedPortrait, setResolvedPortrait] = useState(null);
+  const [loadingSprite, setLoadingSprite] = useState(false);
+  const [loadingPortrait, setLoadingPortrait] = useState(false);
+
+  // Helper function to check if an image reference is a database ID
+  const isDatabaseImageId = (imageRef) => {
+    return imageRef && typeof imageRef === 'string' && imageRef.startsWith('img_');
+  };
+
+  // Helper function to resolve image data
+  const resolveImageData = async (imageReference) => {
+    if (!imageReference) return null;
+    
+    // If it's already a data URL, return as-is
+    if (imageReference.startsWith('data:')) {
+      return imageReference;
+    }
+    
+    // If it's a database ID and we're connected, fetch the image
+    if (isDatabaseImageId(imageReference) && isDatabaseConnected && getImage) {
+      try {
+        const imageData = await getImage(imageReference);
+        return imageData || null;
+      } catch (error) {
+        console.warn('Failed to resolve image:', error);
+        return null;
+      }
+    }
+    
+    return imageReference;
+  };
+
+  // Resolve images when character changes
+  useEffect(() => {
+    const resolveImages = async () => {
+      // Resolve sprite
+      if (editingCharacter.sprite) {
+        if (isDatabaseImageId(editingCharacter.sprite)) {
+          setLoadingSprite(true);
+          const resolved = await resolveImageData(editingCharacter.sprite);
+          setResolvedSprite(resolved);
+          setLoadingSprite(false);
+        } else {
+          setResolvedSprite(editingCharacter.sprite);
+        }
+      } else {
+        setResolvedSprite(null);
+      }
+
+      // Resolve portrait
+      if (editingCharacter.portrait) {
+        if (isDatabaseImageId(editingCharacter.portrait)) {
+          setLoadingPortrait(true);
+          const resolved = await resolveImageData(editingCharacter.portrait);
+          setResolvedPortrait(resolved);
+          setLoadingPortrait(false);
+        } else {
+          setResolvedPortrait(editingCharacter.portrait);
+        }
+      } else {
+        setResolvedPortrait(null);
+      }
+    };
+
+    resolveImages();
+  }, [editingCharacter.sprite, editingCharacter.portrait, isDatabaseConnected, getImage]);
 
   const handleSave = () => {
     try {
@@ -78,7 +150,6 @@ const SimpleCharacterModal = ({
     }
   };
 
-  // Everyone has full editing rights (removed canEdit restriction)
   const canEdit = true;
   const canDelete = true;
 
@@ -88,6 +159,37 @@ const SimpleCharacterModal = ({
     { id: 'spells', name: 'Spells', icon: '✨' },
     { id: 'notes', name: 'Notes', icon: '📝' }
   ];
+
+  // Image display component
+  const ImageDisplay = ({ src, loading, alt, className, placeholder }) => {
+    if (loading) {
+      return (
+        <div className={`flex items-center justify-center bg-slate-700 animate-pulse ${className}`}>
+          <div className="text-slate-400 text-xs">Loading...</div>
+        </div>
+      );
+    }
+
+    if (src) {
+      return (
+        <img
+          src={src}
+          alt={alt}
+          className={className}
+          onError={(e) => {
+            e.target.style.display = 'none';
+            e.target.nextSibling.style.display = 'flex';
+          }}
+        />
+      );
+    }
+
+    return (
+      <div className={`flex items-center justify-center bg-slate-700 ${className}`}>
+        <div className="text-slate-400 text-xs">{placeholder}</div>
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -126,10 +228,14 @@ const SimpleCharacterModal = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Full Access Indicator */}
             <span className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
               Full Access
             </span>
+            {isDatabaseConnected && (
+              <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded">
+                ☁️ Cloud Sync
+              </span>
+            )}
             <button onClick={onClose} className="text-slate-400 hover:text-white">
               <X size={20} />
             </button>
@@ -182,6 +288,67 @@ const SimpleCharacterModal = ({
                     onChange={(e) => setEditingCharacter(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:border-blue-500"
                   />
+                </div>
+              </div>
+
+              {/* Images with proper resolution */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-2">Sprite (Grid Token)</label>
+                  <div className="flex flex-col gap-2">
+                    <div className="w-16 h-16 mx-auto">
+                      <ImageDisplay
+                        src={resolvedSprite}
+                        loading={loadingSprite}
+                        alt="Character sprite"
+                        className="w-16 h-16 object-cover rounded-lg border border-slate-600"
+                        placeholder="No Sprite"
+                      />
+                      <div className="w-16 h-16 flex items-center justify-center bg-slate-700 rounded-lg border border-slate-600" style={{ display: 'none' }}>
+                        <div className="text-slate-400 text-xs">No Sprite</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onUpload && onUpload('sprite')}
+                      disabled={!onUpload}
+                      className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-600 px-3 py-2 rounded text-white transition-colors text-sm"
+                    >
+                      <Upload size={14} className="inline mr-1" />
+                      Upload Sprite
+                    </button>
+                    {isDatabaseImageId(editingCharacter.sprite) && (
+                      <div className="text-xs text-blue-300 text-center">Cloud Image</div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-2">Portrait (Dialogue)</label>
+                  <div className="flex flex-col gap-2">
+                    <div className="w-16 h-16 mx-auto">
+                      <ImageDisplay
+                        src={resolvedPortrait}
+                        loading={loadingPortrait}
+                        alt="Character portrait"
+                        className="w-16 h-16 object-cover rounded-lg border border-slate-600"
+                        placeholder="No Portrait"
+                      />
+                      <div className="w-16 h-16 flex items-center justify-center bg-slate-700 rounded-lg border border-slate-600" style={{ display: 'none' }}>
+                        <div className="text-slate-400 text-xs">No Portrait</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onUpload && onUpload('portrait')}
+                      disabled={!onUpload}
+                      className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-600 px-3 py-2 rounded text-white transition-colors text-sm"
+                    >
+                      <Upload size={14} className="inline mr-1" />
+                      Upload Portrait
+                    </button>
+                    {isDatabaseImageId(editingCharacter.portrait) && (
+                      <div className="text-xs text-blue-300 text-center">Cloud Image</div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -281,8 +448,8 @@ const SimpleCharacterModal = ({
                 />
               </div>
 
-              {/* Appearance - Always editable */}
-              <div className="grid grid-cols-3 gap-4">
+              {/* Appearance */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-slate-300 font-medium mb-2">Token Color</label>
                   <select
@@ -296,32 +463,22 @@ const SimpleCharacterModal = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-2">Sprite</label>
-                  <button
-                    onClick={() => onUpload && onUpload('sprite')}
-                    disabled={!onUpload}
-                    className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-600 px-3 py-2 rounded text-white transition-colors"
+                  <label className="block text-slate-300 font-medium mb-2">Border Color</label>
+                  <select
+                    value={editingCharacter.borderColor}
+                    onChange={(e) => setEditingCharacter(prev => ({ ...prev, borderColor: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white"
                   >
-                    <Upload size={14} className="inline mr-1" />
-                    Upload
-                  </button>
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-2">Portrait</label>
-                  <button
-                    onClick={() => onUpload && onUpload('portrait')}
-                    disabled={!onUpload}
-                    className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-600 px-3 py-2 rounded text-white transition-colors"
-                  >
-                    <Upload size={14} className="inline mr-1" />
-                    Upload
-                  </button>
+                    {borderColorOptions.map(option => (
+                      <option key={option.value} value={option.value}>{option.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Actions Tab - Full editing available */}
+          {/* Actions Tab */}
           {activeTab === 'actions' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
