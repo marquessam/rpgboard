@@ -1,4 +1,4 @@
-// src/App.jsx - Complete application with all features restored
+// src/App.jsx - Your working implementation with fixed database integration
 import React, { useState, useEffect } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -24,12 +24,13 @@ import { useCharacters } from './hooks/useCharacters';
 import { useDatabase } from './hooks/useDatabase';
 
 const App = () => {
-  // Database integration
+  // Database integration with fixed architecture
   const databaseHook = useDatabase();
   const {
     isConnected: isDatabaseConnected,
     isLoading: isDatabaseLoading,
     connectionStatus,
+    statusMessage,
     uploadImage,
     getImage,
     saveCharacterToDb,
@@ -57,7 +58,7 @@ const App = () => {
   // Current actor state (based on selected token)
   const [currentActor, setCurrentActor] = useState(null);
   const [selectedCharacterForActions, setSelectedCharacterForActions] = useState(null);
-  const [activeRightTab, setActiveRightTab] = useState('chat');
+  const [activeRightTab, setActiveRightTab] = useState('actions');
 
   // Map state
   const [gridSize, setGridSize] = useLocalStorage('gridSize', 20);
@@ -106,14 +107,6 @@ const App = () => {
   const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
   const [playerMessage, setPlayerMessage] = useState('');
   const [playerName, setPlayerName] = useState('');
-
-  // Toggle panels function
-  const togglePanel = (panelName) => {
-    setCollapsedPanels(prev => ({
-      ...prev,
-      [panelName]: !prev[panelName]
-    }));
-  };
 
   // Load game state from database on startup
   useEffect(() => {
@@ -286,7 +279,260 @@ const App = () => {
     }]);
   };
 
-  // Enhanced upload handler with better error handling and feedback
+  const handleAttack = (combatResult, targetId, damage) => {
+    // Add attack to combat log
+    setCombatMessages(prev => [...prev, {
+      ...combatResult,
+      type: combatResult.type || 'attack',
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+
+    // Apply damage or healing
+    if (targetId) {
+      const target = characters.find(char => char.id === targetId);
+      if (target) {
+        const oldHp = target.hp || target.maxHp;
+        let newHp;
+        
+        if (damage < 0) {
+          // Healing (negative damage)
+          newHp = Math.min(oldHp - damage, target.maxHp);
+          updateCharacter({ ...target, hp: newHp });
+          
+          setCombatMessages(prev => [...prev, {
+            type: 'healing',
+            target: target.name,
+            amount: -damage,
+            oldHp,
+            newHp,
+            timestamp: new Date().toLocaleTimeString()
+          }]);
+        } else if (damage > 0) {
+          // Damage
+          newHp = Math.max(0, oldHp - damage);
+          updateCharacter({ ...target, hp: newHp });
+          
+          setCombatMessages(prev => [...prev, {
+            type: 'damage',
+            target: target.name,
+            amount: damage,
+            damageType: combatResult.damageType,
+            oldHp,
+            newHp,
+            timestamp: new Date().toLocaleTimeString()
+          }]);
+
+          // Check for death
+          if (newHp <= 0) {
+            setCombatMessages(prev => [...prev, {
+              type: 'death',
+              target: target.name,
+              timestamp: new Date().toLocaleTimeString()
+            }]);
+          }
+        }
+      }
+    }
+  };
+
+  const handleCastSpell = (spellResult, targetId, effect) => {
+    // Add spell to combat log
+    setCombatMessages(prev => [...prev, {
+      ...spellResult,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+
+    // Apply spell effects (reuse attack handler for damage/healing)
+    if (targetId && effect !== 0) {
+      handleAttack(spellResult, targetId, effect);
+    }
+  };
+
+  const handleCharacterSelect = (character) => {
+    if (!character) {
+      setCurrentActor(null);
+      setSelectedCharacterForActions(null);
+      return;
+    }
+
+    const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
+    const isDead = currentHp <= 0;
+    
+    // Set as current actor for living characters
+    if (!isDead) {
+      setCurrentActor(character);
+      setSelectedCharacterForActions(character);
+      
+      // Auto-populate chat name if not already set
+      if (!playerName || playerName === '') {
+        setPlayerName(character.name);
+      }
+    } else if (isDead && character.isMonster) {
+      // Show loot modal for dead monsters
+      setLootingCharacter(character);
+      setShowLootModal(true);
+    }
+  };
+
+  // Updated loot handling to use currentActor properly and handle currency
+  const handleTakeLoot = (lootItems) => {
+    // If no character is selected, try to use the first living non-monster character
+    let receivingCharacter = currentActor;
+    
+    if (!receivingCharacter || (receivingCharacter.hp !== undefined ? receivingCharacter.hp : receivingCharacter.maxHp) <= 0) {
+      // Find the first living non-monster character
+      receivingCharacter = characters.find(char => {
+        const hp = char.hp !== undefined ? char.hp : char.maxHp;
+        return hp > 0 && !char.isMonster;
+      });
+      
+      if (!receivingCharacter) {
+        alert('No living character available to receive loot! Please select a living character first.');
+        return;
+      }
+    }
+
+    // Separate currency from regular items
+    const regularItems = [];
+    const currencyToAdd = { copper: 0, silver: 0, gold: 0 };
+
+    lootItems.forEach(item => {
+      const itemName = item.name.toLowerCase();
+      if (itemName.includes('copper pieces') || itemName.includes('copper coins') || itemName === 'cp') {
+        currencyToAdd.copper += item.actualQuantity || 1;
+      } else if (itemName.includes('silver pieces') || itemName.includes('silver coins') || itemName === 'sp') {
+        currencyToAdd.silver += item.actualQuantity || 1;
+      } else if (itemName.includes('gold pieces') || itemName.includes('gold coins') || itemName === 'gp') {
+        currencyToAdd.gold += item.actualQuantity || 1;
+      } else {
+        regularItems.push({
+          ...item,
+          source: lootingCharacter.name,
+          dateObtained: new Date().toLocaleString(),
+          id: `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        });
+      }
+    });
+
+    // Update character with new items and currency
+    const currentCurrency = receivingCharacter.currency || { copper: 0, silver: 0, gold: 0 };
+    const updatedCharacter = {
+      ...receivingCharacter,
+      inventory: [
+        ...(receivingCharacter.inventory || []),
+        ...regularItems
+      ],
+      currency: {
+        copper: currentCurrency.copper + currencyToAdd.copper,
+        silver: currentCurrency.silver + currencyToAdd.silver,
+        gold: currentCurrency.gold + currencyToAdd.gold
+      }
+    };
+
+    updateCharacter(updatedCharacter);
+    
+    // Update current actor if it's the same character
+    if (currentActor && currentActor.id === receivingCharacter.id) {
+      setCurrentActor(updatedCharacter);
+    }
+
+    // Add loot to combat log
+    const lootSummary = [];
+    if (regularItems.length > 0) {
+      lootSummary.push(`${regularItems.length} items`);
+    }
+    if (currencyToAdd.copper > 0) lootSummary.push(`${currencyToAdd.copper} cp`);
+    if (currencyToAdd.silver > 0) lootSummary.push(`${currencyToAdd.silver} sp`);
+    if (currencyToAdd.gold > 0) lootSummary.push(`${currencyToAdd.gold} gp`);
+
+    setCombatMessages(prev => [...prev, {
+      type: 'loot',
+      text: `${receivingCharacter.name} looted ${lootSummary.join(', ')} from ${lootingCharacter.name}`,
+      items: lootItems.map(item => `${item.name} x${item.actualQuantity}`),
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+
+    // Mark the character as looted
+    updateCharacter({
+      ...lootingCharacter,
+      looted: true
+    });
+    
+    // Show success message
+    setChatMessages(prev => [...prev, {
+      type: 'system',
+      name: 'System',
+      text: `${receivingCharacter.name} obtained ${lootSummary.join(', ')} from ${lootingCharacter.name}`,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  };
+
+  const clearCombatLog = () => {
+    setCombatMessages([]);
+  };
+
+  const addSpellToCharacter = (characterId, spell) => {
+    const character = characters.find(c => c.id === characterId);
+    if (character) {
+      updateCharacter({
+        ...character,
+        spells: [...(character.spells || []), spell]
+      });
+    }
+  };
+
+  const removeSpellFromCharacter = (characterId, spellIndex) => {
+    const character = characters.find(c => c.id === characterId);
+    if (character) {
+      updateCharacter({
+        ...character,
+        spells: (character.spells || []).filter((_, index) => index !== spellIndex)
+      });
+    }
+  };
+
+  const handleCombatMessage = (message) => {
+    setCombatMessages(prev => [...prev, message]);
+  };
+
+  const togglePanel = (panelId) => {
+    setCollapsedPanels(prev => ({
+      ...prev,
+      [panelId]: !prev[panelId]
+    }));
+  };
+
+  // Enhanced character update function that saves to database
+  const handleCharacterUpdate = async (character) => {
+    updateCharacter(character);
+    
+    // Save to database if connected
+    if (isDatabaseConnected) {
+      try {
+        await saveCharacterToDb(character);
+        console.log(`💾 Character ${character.name} saved to database`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to save character ${character.name} to database:`, error);
+      }
+    }
+  };
+
+  // Enhanced character deletion that removes from database
+  const handleCharacterDelete = async (characterId) => {
+    deleteCharacter(characterId);
+    
+    // Delete from database if connected
+    if (isDatabaseConnected) {
+      try {
+        await deleteCharacterFromDb(characterId);
+        console.log(`🗑️ Character deleted from database: ${characterId}`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to delete character from database:`, error);
+      }
+    }
+  };
+
+  // Enhanced upload handler with database integration
   const handleUpload = async (file, result) => {
     try {
       setUploadError(null);
@@ -335,102 +581,117 @@ const App = () => {
     }
   };
 
-  // Enhanced character update function that saves to database
-  const handleCharacterUpdate = async (character) => {
-    updateCharacter(character);
-    
-    // Save to database if connected
-    if (isDatabaseConnected) {
-      try {
-        await saveCharacterToDb(character);
-        console.log(`💾 Character ${character.name} saved to database`);
-      } catch (error) {
-        console.warn(`⚠️ Failed to save character ${character.name} to database:`, error);
-      }
+  // Define which panels are available to everyone vs DM-only
+  const sharedTabs = ['actions', 'conditions', 'spells', 'inventory']; // Everyone gets these
+  const dmOnlyTabs = ['initiative']; // Only DM gets these
+  const availableSharedTabs = [
+    { id: 'actions', name: 'Actions', icon: '⚔️' },
+    { id: 'conditions', name: 'Conditions', icon: '🎭' },
+    { id: 'spells', name: 'Spells', icon: '✨' },
+    { id: 'inventory', name: 'Inventory', icon: '🎒' }
+  ];
+  const availableDMTabs = [
+    { id: 'initiative', name: 'Initiative', icon: '🎲' }
+  ];
+
+  const renderCharacterToolsContent = () => {
+    switch (activeRightTab) {
+      case 'actions':
+        return (
+          <ActionPanel
+            selectedCharacter={currentActor}
+            characters={characters}
+            onAttack={handleAttack}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
+          />
+        );
+      case 'conditions':
+        return (
+          <ConditionsPanel
+            selectedCharacter={currentActor}
+            onAddCondition={addCondition}
+            onRemoveCondition={removeCondition}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
+          />
+        );
+      case 'spells':
+        return (
+          <SpellPanel
+            selectedCharacter={currentActor}
+            characters={characters}
+            onCastSpell={handleCastSpell}
+            onAddSpell={addSpellToCharacter}
+            onRemoveSpell={removeSpellFromCharacter}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
+          />
+        );
+      case 'inventory':
+        return (
+          <InventoryPanel
+            selectedCharacter={currentActor}
+            onRemoveInventoryItem={(index) => {
+              if (currentActor && currentActor.inventory) {
+                const updatedActor = {
+                  ...currentActor,
+                  inventory: currentActor.inventory.filter((_, i) => i !== index)
+                };
+                handleCharacterUpdate(updatedActor);
+                setCurrentActor(updatedActor);
+              }
+            }}
+            onAddInventoryItem={(item) => {
+              if (currentActor) {
+                const updatedActor = {
+                  ...currentActor,
+                  inventory: [...(currentActor.inventory || []), item]
+                };
+                handleCharacterUpdate(updatedActor);
+                setCurrentActor(updatedActor);
+              }
+            }}
+            onUpdateCharacterCurrency={(newCurrency) => {
+              if (currentActor) {
+                const updatedActor = {
+                  ...currentActor,
+                  currency: newCurrency
+                };
+                handleCharacterUpdate(updatedActor);
+                setCurrentActor(updatedActor);
+              }
+            }}
+            onClearSelection={() => {
+              setCurrentActor(null);
+              setSelectedCharacterForActions(null);
+            }}
+          />
+        );
+      default:
+        return null;
     }
   };
 
-  // Enhanced character deletion that removes from database
-  const handleCharacterDelete = async (characterId) => {
-    deleteCharacter(characterId);
-    
-    // Delete from database if connected
-    if (isDatabaseConnected) {
-      try {
-        await deleteCharacterFromDb(characterId);
-        console.log(`🗑️ Character deleted from database: ${characterId}`);
-      } catch (error) {
-        console.warn(`⚠️ Failed to delete character from database:`, error);
-      }
+  const renderDMToolsContent = () => {
+    switch (activeRightTab) {
+      case 'initiative':
+        return (
+          <InitiativeTracker
+            characters={characters}
+            onUpdateCharacter={handleCharacterUpdate}
+            onCombatMessage={handleCombatMessage}
+          />
+        );
+      default:
+        return null;
     }
-  };
-
-  // Combat functions
-  const handleAttack = (attackResult, targetId, damage) => {
-    if (damage > 0) {
-      damageCharacter(targetId, damage);
-    }
-    
-    setCombatMessages(prev => [...prev, {
-      ...attackResult,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
-  };
-
-  const handleLootCharacter = (deadCharacter) => {
-    setLootingCharacter(deadCharacter);
-    setShowLootModal(true);
-  };
-
-  const handleTakeLoot = (items) => {
-    if (currentActor && items.length > 0) {
-      // Add items to current actor's inventory
-      const updatedActor = {
-        ...currentActor,
-        inventory: [...(currentActor.inventory || []), ...items.map(item => ({
-          ...item,
-          source: `Looted from ${lootingCharacter.name}`,
-          dateObtained: new Date().toLocaleString()
-        }))]
-      };
-      
-      // Update currency
-      const currencyItems = items.filter(item => item.type === 'currency');
-      if (currencyItems.length > 0) {
-        const newCurrency = { ...(currentActor.currency || { copper: 0, silver: 0, gold: 0 }) };
-        
-        currencyItems.forEach(item => {
-          const name = item.name.toLowerCase();
-          if (name.includes('gold')) {
-            newCurrency.gold += item.actualQuantity;
-          } else if (name.includes('silver')) {
-            newCurrency.silver += item.actualQuantity;
-          } else if (name.includes('copper')) {
-            newCurrency.copper += item.actualQuantity;
-          }
-        });
-        
-        updatedActor.currency = newCurrency;
-      }
-      
-      updateCharacter(updatedActor);
-      setCurrentActor(updatedActor);
-      
-      // Mark the dead character as looted
-      const lootedCharacter = { ...lootingCharacter, looted: true };
-      updateCharacter(lootedCharacter);
-      
-      // Add to combat log
-      setCombatMessages(prev => [...prev, {
-        type: 'loot',
-        text: `${currentActor.name} looted items from ${lootingCharacter.name}`,
-        items: items.map(item => `${item.name} x${item.actualQuantity || 1}`),
-        timestamp: new Date().toLocaleTimeString()
-      }]);
-    }
-    
-    setShowLootModal(false);
-    setLootingCharacter(null);
   };
 
   return (
@@ -492,11 +753,16 @@ const App = () => {
           </div>
         )}
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-          
-          {/* Left Panel - Battle Map */}
-          <div className="xl:col-span-2">
+        <div className="grid grid-cols-1 xl:grid-cols-6 gap-4">
+          {/* Left Panel - Monster Panel (DM Only) */}
+          {isDMMode && (
+            <div className="xl:col-span-1 transition-all duration-300 ease-in-out">
+              <MonsterPanel onAddMonster={handleAddMonster} />
+            </div>
+          )}
+
+          {/* Center Panel - Battle Map */}
+          <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-3' : 'xl:col-span-4'}`}>
             <BattleMap
               gridSize={gridSize}
               onGridSizeChange={setGridSize}
@@ -506,17 +772,14 @@ const App = () => {
                 setEditingCharacter(char);
                 setShowCharacterModal(true);
               }}
-              onSelectCharacter={(char) => {
-                setCurrentActor(char);
-                setSelectedCharacterForActions(char);
-              }}
+              onSelectCharacter={handleCharacterSelect}
               selectedCharacter={selectedCharacterForActions}
               onMakeCharacterSpeak={handleMakeCharacterSpeak}
               onMoveCharacter={moveCharacter}
               terrain={terrain}
-              onTerrainChange={setTerrain}
+              onTerrainChange={isDMMode ? setTerrain : null}
               customTerrainSprites={customTerrainSprites}
-              paintMode={paintMode}
+              paintMode={isDMMode ? paintMode : false}
               selectedTerrain={selectedTerrain}
               onSelectedTerrainChange={setSelectedTerrain}
               showGrid={showGrid}
@@ -527,211 +790,226 @@ const App = () => {
             />
           </div>
 
-          {/* Center Panel - Monster/Action/Combat depending on mode */}
-          <div className="xl:col-span-1">
-            {isDMMode ? (
-              <div className="space-y-4">
-                <MonsterPanel onAddMonster={handleAddMonster} />
-                
-                {selectedCharacterForActions && (
-                  <ActionPanel
-                    selectedCharacter={selectedCharacterForActions}
-                    characters={characters}
-                    onAttack={handleAttack}
-                    onClearSelection={() => setSelectedCharacterForActions(null)}
-                  />
-                )}
+          {/* Right Panel - Character Tools and Chat/Log */}
+          <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-2' : 'xl:col-span-2'} space-y-4`}>
+            
+            {/* Character Control Panel - Everyone Gets This */}
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+              <div className="p-4 border-b border-slate-700">
+                <h3 className="text-lg font-bold text-slate-100 flex items-center">
+                  ⚡ Character Controls
+                  {currentActor && (
+                    <span className="ml-3 text-sm bg-blue-500/20 text-blue-300 px-2 py-1 rounded">
+                      Acting as: {currentActor.name}
+                    </span>
+                  )}
+                  {!currentActor && (
+                    <span className="ml-3 text-sm bg-slate-500/20 text-slate-400 px-2 py-1 rounded">
+                      No character selected
+                    </span>
+                  )}
+                  {/* Database status indicator */}
+                  {isDatabaseConnected && (
+                    <span className="ml-3 text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
+                      ☁️ Cloud Sync
+                    </span>
+                  )}
+                </h3>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {selectedCharacterForActions && (
-                  <ActionPanel
-                    selectedCharacter={selectedCharacterForActions}
-                    characters={characters}
-                    onAttack={handleAttack}
-                    onClearSelection={() => setSelectedCharacterForActions(null)}
-                  />
-                )}
-                
-                <ConditionsPanel
-                  selectedCharacter={selectedCharacterForActions}
-                  onAddCondition={addCondition}
-                  onRemoveCondition={removeCondition}
-                  onClearSelection={() => setSelectedCharacterForActions(null)}
-                />
+              
+              {/* Tab Navigation */}
+              <div className="border-b border-slate-700">
+                <div className="flex overflow-x-auto">
+                  {availableSharedTabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveRightTab(tab.id)}
+                      className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 ${
+                        activeRightTab === tab.id
+                          ? 'bg-slate-700/50 border-blue-500 text-blue-300'
+                          : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                      }`}
+                    >
+                      <span className="mr-2">{tab.icon}</span>
+                      {tab.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* Right Panel - Chat & Tabs */}
-          <div className="xl:col-span-1">
-            {/* Tab Navigation */}
-            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-t-xl p-2">
-              <div className="flex gap-1">
-                {[
-                  { id: 'chat', name: 'Chat', icon: '💬' },
-                  { id: 'combat', name: 'Combat', icon: '⚔️' },
-                  { id: 'initiative', name: 'Initiative', icon: '🎯' },
-                  { id: 'spells', name: 'Spells', icon: '✨' },
-                  { id: 'inventory', name: 'Inventory', icon: '🎒' }
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveRightTab(tab.id)}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                      activeRightTab === tab.id
-                        ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                    }`}
-                  >
-                    <span className="mr-1">{tab.icon}</span>
-                    <span className="hidden sm:inline">{tab.name}</span>
-                  </button>
-                ))}
+              {/* Tab Content */}
+              <div className="transition-all duration-200 ease-in-out">
+                {renderCharacterToolsContent()}
               </div>
             </div>
 
-            {/* Tab Content */}
-            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 border-t-0 rounded-b-xl shadow-2xl h-96 overflow-hidden">
-              {activeRightTab === 'chat' && (
-                <ChatPanel
-                  chatMessages={chatMessages}
-                  onAddMessage={setChatMessages}
-                  playerMessage={playerMessage}
-                  onPlayerMessageChange={setPlayerMessage}
-                  playerName={playerName}
-                  onPlayerNameChange={setPlayerName}
-                  characters={characters}
-                  onMakeCharacterSpeak={handleMakeCharacterSpeak}
-                  currentActor={currentActor}
-                />
-              )}
-              
-              {activeRightTab === 'combat' && (
-                <CombatLog
-                  combatMessages={combatMessages}
-                  onClearLog={() => setCombatMessages([])}
-                />
-              )}
-              
-              {activeRightTab === 'initiative' && (
-                <InitiativeTracker
-                  characters={characters}
-                  onUpdateCharacter={updateCharacter}
-                  onCombatMessage={(message) => setCombatMessages(prev => [...prev, message])}
-                />
-              )}
-              
-              {activeRightTab === 'spells' && (
-                <SpellPanel
-                  selectedCharacter={selectedCharacterForActions}
-                  characters={characters}
-                  onCastSpell={handleAttack}
-                  onAddSpell={(characterId, spell) => {
-                    const character = characters.find(c => c.id === characterId);
-                    if (character) {
-                      const updatedChar = {
-                        ...character,
-                        spells: [...(character.spells || []), spell]
-                      };
-                      updateCharacter(updatedChar);
-                    }
-                  }}
-                  onRemoveSpell={(characterId, spellIndex) => {
-                    const character = characters.find(c => c.id === characterId);
-                    if (character) {
-                      const updatedChar = {
-                        ...character,
-                        spells: (character.spells || []).filter((_, i) => i !== spellIndex)
-                      };
-                      updateCharacter(updatedChar);
-                    }
-                  }}
-                  onClearSelection={() => setSelectedCharacterForActions(null)}
-                />
-              )}
-              
-              {activeRightTab === 'inventory' && (
-                <InventoryPanel
-                  selectedCharacter={selectedCharacterForActions}
-                  onRemoveInventoryItem={(itemIndex) => {
-                    if (selectedCharacterForActions) {
-                      const updatedChar = {
-                        ...selectedCharacterForActions,
-                        inventory: (selectedCharacterForActions.inventory || []).filter((_, i) => i !== itemIndex)
-                      };
-                      updateCharacter(updatedChar);
-                      setSelectedCharacterForActions(updatedChar);
-                    }
-                  }}
-                  onAddInventoryItem={(item) => {
-                    if (selectedCharacterForActions) {
-                      const updatedChar = {
-                        ...selectedCharacterForActions,
-                        inventory: [...(selectedCharacterForActions.inventory || []), item]
-                      };
-                      updateCharacter(updatedChar);
-                      setSelectedCharacterForActions(updatedChar);
-                    }
-                  }}
-                  onUpdateCharacterCurrency={(newCurrency) => {
-                    if (selectedCharacterForActions) {
-                      const updatedChar = {
-                        ...selectedCharacterForActions,
-                        currency: newCurrency
-                      };
-                      updateCharacter(updatedChar);
-                      setSelectedCharacterForActions(updatedChar);
-                    }
-                  }}
-                  onClearSelection={() => setSelectedCharacterForActions(null)}
-                />
-              )}
+            {/* DM Tools Panel - DM Only */}
+            {isDMMode && availableDMTabs.length > 0 && (
+              <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                <div className="p-4 border-b border-slate-700">
+                  <h3 className="text-lg font-bold text-slate-100 flex items-center">
+                    🎲 DM Tools
+                    <span className="ml-3 text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded">
+                      DM Only
+                    </span>
+                  </h3>
+                </div>
+                
+                {/* DM Tab Navigation */}
+                <div className="border-b border-slate-700">
+                  <div className="flex overflow-x-auto">
+                    {availableDMTabs.map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveRightTab(tab.id)}
+                        className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 ${
+                          activeRightTab === tab.id
+                            ? 'bg-slate-700/50 border-red-500 text-red-300'
+                            : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                        }`}
+                      >
+                        <span className="mr-2">{tab.icon}</span>
+                        {tab.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* DM Tab Content */}
+                <div className="transition-all duration-200 ease-in-out">
+                  {renderDMToolsContent()}
+                </div>
+              </div>
+            )}
+
+            {/* Chat and Log Panel - Always Visible */}
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+              {/* Tab Navigation */}
+              <div className="border-b border-slate-700">
+                <div className="flex">
+                  <button
+                    onClick={() => setActiveRightTab('chat')}
+                    className={`px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 flex-1 ${
+                      activeRightTab === 'chat'
+                        ? 'bg-slate-700/50 border-green-500 text-green-300'
+                        : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                    }`}
+                  >
+                    <span className="mr-2">💬</span>
+                    Chat
+                  </button>
+                  <button
+                    onClick={() => setActiveRightTab('log')}
+                    className={`px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 flex-1 ${
+                      activeRightTab === 'log'
+                        ? 'bg-slate-700/50 border-green-500 text-green-300'
+                        : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                    }`}
+                  >
+                    <span className="mr-2">📜</span>
+                    Combat Log
+                    {combatMessages.length > 0 && (
+                      <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                        {combatMessages.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="transition-all duration-200 ease-in-out">
+                {activeRightTab === 'chat' && (
+                  <ChatPanel
+                    chatMessages={chatMessages}
+                    onAddMessage={setChatMessages}
+                    playerMessage={playerMessage}
+                    onPlayerMessageChange={setPlayerMessage}
+                    playerName={playerName}
+                    onPlayerNameChange={setPlayerName}
+                    characters={characters}
+                    onMakeCharacterSpeak={handleMakeCharacterSpeak}
+                    autoScroll={false}
+                    currentActor={currentActor}
+                  />
+                )}
+                {activeRightTab === 'log' && (
+                  <CombatLog
+                    combatMessages={combatMessages}
+                    onClearLog={clearCombatLog}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Modals */}
+        {/* Modals and Overlays */}
+        {showDialoguePopup && (
+          <DialoguePopup
+            speaker={currentSpeaker}
+            text={displayedText}
+            isTyping={isTyping}
+            queueLength={dialogueQueue.length}
+            onClose={closeDialogue}
+          />
+        )}
+
         {showCharacterModal && editingCharacter && (
           <SimpleCharacterModal
             character={editingCharacter}
             characters={characters}
             isDMMode={isDMMode}
-            onSave={(char) => {
-              handleCharacterUpdate(char);
+            onSave={(savedCharacter) => {
+              handleCharacterUpdate(savedCharacter);
+              // Update current actor if it's the same character
+              if (currentActor && currentActor.id === savedCharacter.id) {
+                setCurrentActor(savedCharacter);
+              }
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
-            onDelete={handleCharacterDelete}
+            onDelete={(characterId) => {
+              handleCharacterDelete(characterId);
+              // Clear current actor if it was deleted
+              if (currentActor && currentActor.id === characterId) {
+                setCurrentActor(null);
+                setSelectedCharacterForActions(null);
+              }
+              setShowCharacterModal(false);
+              setEditingCharacter(null);
+            }}
             onClose={() => {
               setShowCharacterModal(false);
               setEditingCharacter(null);
             }}
             onUpload={openUploadModal}
+            onAttack={handleAttack}
+            onCastSpell={handleCastSpell}
           />
         )}
 
-        {showSceneModal && (
+        {showSceneModal && isDMMode && (
           <SceneModal
             sceneImage={sceneImage}
             sceneDescription={sceneDescription}
             onSceneImageChange={setSceneImage}
             onSceneDescriptionChange={setSceneDescription}
             onShowScene={showScene}
-            onClose={() => setShowSceneModal(false)}
+            onClose={() => {
+              setShowSceneModal(false);
+              setSceneImage('');
+              setSceneDescription('');
+            }}
             onUpload={openUploadModal}
           />
         )}
 
-        {showUploadModal && (
-          <UploadModal
-            uploadType={uploadType}
-            onUpload={handleUpload}
-            onClose={() => {
-              setShowUploadModal(false);
-              setUploadError(null);
-            }}
-            isDatabaseConnected={isDatabaseConnected}
+        {showSceneDisplay && (
+          <SceneDisplay
+            image={sceneImage}
+            description={sceneDescription}
+            onClose={() => setShowSceneDisplay(false)}
           />
         )}
 
@@ -746,21 +1024,15 @@ const App = () => {
           />
         )}
 
-        {showDialoguePopup && currentSpeaker && (
-          <DialoguePopup
-            speaker={currentSpeaker}
-            text={displayedText}
-            isTyping={isTyping}
-            queueLength={dialogueQueue.length}
-            onClose={closeDialogue}
-          />
-        )}
-
-        {showSceneDisplay && (
-          <SceneDisplay
-            image={sceneImage}
-            description={sceneDescription}
-            onClose={() => setShowSceneDisplay(false)}
+        {showUploadModal && (
+          <UploadModal
+            uploadType={uploadType}
+            onUpload={handleUpload}
+            onClose={() => {
+              setShowUploadModal(false);
+              setUploadError(null);
+            }}
+            isDatabaseConnected={isDatabaseConnected}
           />
         )}
       </div>
