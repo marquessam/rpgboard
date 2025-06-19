@@ -51,6 +51,13 @@ const SimpleCharacterModal = ({
   const [loadingSprite, setLoadingSprite] = useState(false);
   const [loadingPortrait, setLoadingPortrait] = useState(false);
 
+  // Sync with prop changes (for when uploads complete)
+  useEffect(() => {
+    if (character && character.id === editingCharacter.id) {
+      setEditingCharacter(character);
+    }
+  }, [character]);
+
   // Helper function to check if an image reference is a database ID
   const isDatabaseImageId = (imageRef) => {
     return imageRef && typeof imageRef === 'string' && imageRef.startsWith('img_');
