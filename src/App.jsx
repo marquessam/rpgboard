@@ -200,19 +200,31 @@ const App = () => {
       
       // Apply the result - use data URL for immediate display
       if (uploadType === 'portrait') {
-        setEditingCharacter(prev => ({ 
-          ...prev, 
+        const updatedCharacter = { 
+          ...editingCharacter, 
           portrait: finalResult,
           // Store database reference separately for saving
           _portraitDbId: databaseId
-        }));
+        };
+        console.log('🖼️ Setting portrait on character:', { 
+          characterId: updatedCharacter.id, 
+          portraitType: finalResult?.startsWith?.('data:') ? 'data URL' : 'other',
+          portraitLength: finalResult?.length 
+        });
+        setEditingCharacter(updatedCharacter);
       } else if (uploadType === 'sprite') {
-        setEditingCharacter(prev => ({ 
-          ...prev, 
+        const updatedCharacter = { 
+          ...editingCharacter, 
           sprite: finalResult,
           // Store database reference separately for saving
           _spriteDbId: databaseId
-        }));
+        };
+        console.log('🖼️ Setting sprite on character:', { 
+          characterId: updatedCharacter.id, 
+          spriteType: finalResult?.startsWith?.('data:') ? 'data URL' : 'other',
+          spriteLength: finalResult?.length 
+        });
+        setEditingCharacter(updatedCharacter);
       } else if (uploadType === 'terrain') {
         setCustomTerrainSprites(prev => ({
           ...prev,
@@ -1053,6 +1065,9 @@ const App = () => {
             onUpload={openUploadModal}
             onAttack={handleAttack}
             onCastSpell={handleCastSpell}
+            // Add database integration props
+            isDatabaseConnected={isDatabaseConnected}
+            getImage={getImage}
           />
         )}
 
