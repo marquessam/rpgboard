@@ -1,6 +1,7 @@
 [build]
   publish = "dist"
   command = "npm run build"
+  functions = "functions"
 
 [[redirects]]
   from = "/*"
@@ -9,3 +10,10 @@
 
 [build.environment]
   NODE_VERSION = "20"
+
+[dev]
+  command = "npm run dev:vite"
+  port = 8888
+  targetPort = 3000
+  publish = "dist"
+  functions = "functions"
