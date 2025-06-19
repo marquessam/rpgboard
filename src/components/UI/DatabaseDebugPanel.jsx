@@ -1,11 +1,13 @@
-// src/components/UI/DatabaseDebugPanel.jsx - Debug component for database status
+// src/components/UI/DatabaseDebugPanel.jsx - Enhanced with better debugging and setup instructions
 import React, { useState, useEffect } from 'react';
-import { Database, RefreshCw, AlertCircle, CheckCircle, Loader, ChevronDown, ChevronUp } from 'lucide-react';
+import { Database, RefreshCw, AlertCircle, CheckCircle, Loader, ChevronDown, ChevronUp, TestTube, Terminal, Cloud, Settings } from 'lucide-react';
 
 const DatabaseDebugPanel = ({ useDatabase }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [stats, setStats] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   
   const { 
     isConnected, 
@@ -13,7 +15,8 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
     connectionError, 
     connectionStatus, 
     statusMessage,
-    getDatabaseStats 
+    getDatabaseStats,
+    testConnection
   } = useDatabase;
 
   const refreshStats = async () => {
@@ -27,6 +30,29 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
       console.error('Failed to refresh stats:', error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!testConnection) return;
+    
+    setTesting(true);
+    setTestResult(null);
+    
+    try {
+      const result = await testConnection();
+      setTestResult(result);
+      
+      if (result.success && result.stats) {
+        setStats(result.stats);
+      }
+    } catch (error) {
+      setTestResult({
+        success: false,
+        message: error.message
+      });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -72,7 +98,13 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
         <div className="flex items-center gap-3">
           {getStatusIcon()}
           <div>
-            <div className="font-medium text-white text-sm">Database Status</div>
+            <div className="font-medium text-white text-sm flex items-center gap-2">
+              Database Status
+              <Cloud size={14} className="text-blue-400" />
+              <span className="text-xs bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded">
+                Netlify Functions
+              </span>
+            </div>
             <div className="text-xs text-slate-400">{statusMessage}</div>
           </div>
         </div>
@@ -81,8 +113,60 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
 
       {/* Expanded Content */}
       {isExpanded && (
-        <div className="border-t border-slate-700 p-3 space-y-3">
+        <div className="border-t border-slate-700 p-3 space-y-4">
           
+          {/* Architecture Info */}
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-blue-300 flex items-center gap-2">
+              <Settings size={14} />
+              Architecture
+            </div>
+            <div className="text-xs text-slate-300 bg-slate-800 p-2 rounded">
+              <div className="mb-1">🌐 <strong>Client</strong> → HTTP requests → <strong>Netlify Function</strong> → <strong>Neon Database</strong></div>
+              <div className="text-slate-400">This architecture keeps your database secure by preventing direct browser access.</div>
+            </div>
+          </div>
+
+          {/* Test Connection */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                <TestTube size={14} />
+                Connection Test
+              </div>
+              <button
+                onClick={handleTestConnection}
+                disabled={testing}
+                className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 px-3 py-1 rounded text-white text-xs transition-colors flex items-center gap-1"
+              >
+                {testing ? (
+                  <>
+                    <Loader size={12} className="animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <TestTube size={12} />
+                    Test Now
+                  </>
+                )}
+              </button>
+            </div>
+            
+            {testResult && (
+              <div className={`text-xs p-2 rounded ${
+                testResult.success 
+                  ? 'bg-green-900/20 text-green-300 border border-green-800' 
+                  : 'bg-red-900/20 text-red-300 border border-red-800'
+              }`}>
+                <div className="font-medium">
+                  {testResult.success ? '✅ Connection Test Passed' : '❌ Connection Test Failed'}
+                </div>
+                <div className="mt-1">{testResult.message}</div>
+              </div>
+            )}
+          </div>
+
           {/* Connection Details */}
           <div className="space-y-2">
             <div className="text-sm font-medium text-slate-300">Connection Details</div>
@@ -100,8 +184,13 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
               <div className="text-slate-400">Loading:</div>
               <div className="text-white">{isLoading ? 'Yes' : 'No'}</div>
               
+              <div className="text-slate-400">Function URL:</div>
+              <div className="text-white text-xs">/.netlify/functions/database</div>
+              
               <div className="text-slate-400">Environment:</div>
-              <div className="text-white">{typeof window !== 'undefined' ? 'Browser' : 'Server'}</div>
+              <div className="text-white">
+                {window.location.hostname === 'localhost' ? 'Development' : 'Production'}
+              </div>
             </div>
           </div>
 
@@ -109,8 +198,31 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
           {connectionError && (
             <div className="space-y-2">
               <div className="text-sm font-medium text-red-300">Error Details</div>
-              <div className="text-xs text-red-200 bg-red-900/20 p-2 rounded font-mono">
+              <div className="text-xs text-red-200 bg-red-900/20 p-2 rounded font-mono border border-red-800">
                 {connectionError}
+              </div>
+              
+              {/* Troubleshooting */}
+              <div className="text-xs text-slate-300">
+                <div className="font-medium mb-1">Troubleshooting:</div>
+                {connectionError.includes('Failed to fetch') ? (
+                  <ul className="list-disc list-inside space-y-1 text-slate-400">
+                    <li>If developing locally: Run <code className="bg-slate-800 px-1 rounded">netlify dev</code></li>
+                    <li>Check that your Netlify Function deployed successfully</li>
+                    <li>Verify function logs in Netlify dashboard</li>
+                  </ul>
+                ) : connectionError.includes('NETLIFY_DATABASE_URL') ? (
+                  <ul className="list-disc list-inside space-y-1 text-slate-400">
+                    <li>Run <code className="bg-slate-800 px-1 rounded">netlify db init</code></li>
+                    <li>Check environment variables in Netlify dashboard</li>
+                  </ul>
+                ) : (
+                  <ul className="list-disc list-inside space-y-1 text-slate-400">
+                    <li>Check browser developer console for details</li>
+                    <li>Verify Netlify Function logs</li>
+                    <li>Test the function URL directly</li>
+                  </ul>
+                )}
               </div>
             </div>
           )}
@@ -123,9 +235,10 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
                 <button
                   onClick={refreshStats}
                   disabled={refreshing}
-                  className="text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+                  className="text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50 flex items-center gap-1"
                 >
-                  <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+                  <span className="text-xs">Refresh</span>
                 </button>
               </div>
               
@@ -150,30 +263,52 @@ const DatabaseDebugPanel = ({ useDatabase }) => {
           )}
 
           {/* Setup Instructions */}
-          {connectionStatus === 'error' || connectionStatus === 'disconnected' ? (
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-yellow-300">Setup Instructions</div>
-              <div className="text-xs text-slate-300 space-y-1">
-                <div>To enable cloud database storage:</div>
-                <div className="font-mono bg-slate-800 p-2 rounded">
-                  npx netlify db init
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-yellow-300 flex items-center gap-2">
+              <Terminal size={14} />
+              Setup Instructions
+            </div>
+            
+            {window.location.hostname === 'localhost' ? (
+              <div className="text-xs text-slate-300 space-y-2">
+                <div className="font-medium">For Local Development:</div>
+                <div className="bg-slate-800 p-2 rounded font-mono">
+                  <div># 1. Initialize database</div>
+                  <div>netlify db init</div>
+                  <div className="mt-1"># 2. Start dev server</div>
+                  <div>netlify dev</div>
                 </div>
-                <div>Or set up environment variables manually:</div>
-                <div className="font-mono bg-slate-800 p-2 rounded text-xs">
-                  NETLIFY_DATABASE_URL=your_connection_string
+                <div className="text-slate-400">
+                  Make sure you're using <code>netlify dev</code> instead of <code>npm run dev</code> 
+                  to enable Netlify Functions locally.
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : (
+              <div className="text-xs text-slate-300 space-y-2">
+                <div className="font-medium">For Production:</div>
+                <ul className="list-disc list-inside space-y-1 text-slate-400">
+                  <li>Database should be configured in Netlify dashboard</li>
+                  <li>Environment variables should be set automatically</li>
+                  <li>Function should deploy with your site</li>
+                </ul>
+              </div>
+            )}
+          </div>
 
           {/* Current Mode */}
           <div className="space-y-2">
             <div className="text-sm font-medium text-slate-300">Current Storage Mode</div>
             <div className="text-xs">
               {isConnected ? (
-                <div className="text-green-300">☁️ Cloud Database - Images and data saved to Neon PostgreSQL</div>
+                <div className="text-green-300 flex items-center gap-2">
+                  <Cloud size={14} />
+                  ☁️ Cloud Database - Data saved to Neon PostgreSQL via Netlify Functions
+                </div>
               ) : (
-                <div className="text-yellow-300">💾 Local Storage - Images and data saved to browser localStorage</div>
+                <div className="text-yellow-300 flex items-center gap-2">
+                  <Database size={14} />
+                  💾 Local Storage - Data saved to browser (temporary)
+                </div>
               )}
             </div>
           </div>
