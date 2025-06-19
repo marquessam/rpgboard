@@ -1,4 +1,4 @@
-// src/hooks/useCharacters.js - Fixed version
+// src/hooks/useCharacters.js - Fixed version with proper setCharacters export
 import { useLocalStorage } from './useLocalStorage';
 import { newCharacterTemplate, colors } from '../utils/constants';
 import { getStatModifier } from '../utils/helpers';
@@ -17,7 +17,10 @@ export const useCharacters = () => {
       speed: 30,
       conditions: [],
       actions: [],
-      spells: []
+      spells: [],
+      // Ensure position is set
+      x: Math.floor(Math.random() * 20),
+      y: Math.floor(Math.random() * 20)
     };
     
     console.log('Adding new character:', newChar);
@@ -32,10 +35,14 @@ export const useCharacters = () => {
   const addMonster = (monsterTemplate) => {
     const monster = {
       ...monsterTemplate,
-      id: `monster_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: monsterTemplate.id || `monster_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       // Ensure position is set
-      x: monsterTemplate.x || 0,
-      y: monsterTemplate.y || 0
+      x: monsterTemplate.x || Math.floor(Math.random() * 20),
+      y: monsterTemplate.y || Math.floor(Math.random() * 20),
+      isMonster: true,
+      conditions: monsterTemplate.conditions || [],
+      actions: monsterTemplate.actions || [],
+      spells: monsterTemplate.spells || []
     };
     
     console.log('Adding monster:', monster);
@@ -129,6 +136,7 @@ export const useCharacters = () => {
 
   return {
     characters,
+    setCharacters, // Make sure this is exported!
     addCharacter,
     addMonster,
     updateCharacter,
