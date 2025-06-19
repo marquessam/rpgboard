@@ -1,6 +1,6 @@
-// src/components/UI/Header.jsx - Enhanced with DM/Player mode and better organization
+// src/components/UI/Header.jsx - Enhanced with grid size control and better organization
 import React from 'react';
-import { Image, Paintbrush, LayoutGrid, Users, Settings, Eye, EyeOff } from 'lucide-react';
+import { Image, Paintbrush, LayoutGrid, Users, Settings, Eye, EyeOff, Grid3X3 } from 'lucide-react';
 
 const Header = ({
   isDMMode,
@@ -13,7 +13,11 @@ const Header = ({
   gridColor,
   onGridColorChange,
   showNames,
-  onToggleNames
+  onToggleNames,
+  isDatabaseConnected,
+  isDatabaseLoading,
+  gridSize,
+  onGridSizeChange
 }) => {
   return (
     <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-4 mb-4 shadow-2xl">
@@ -24,6 +28,20 @@ const Header = ({
           <h1 className="text-2xl lg:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
             ⚔️ RPG Battle Tool
           </h1>
+          
+          {/* Database Status */}
+          {isDatabaseLoading && (
+            <div className="flex items-center gap-2 text-blue-300 text-sm">
+              <div className="animate-spin w-4 h-4 border-2 border-blue-300 border-t-transparent rounded-full"></div>
+              Connecting...
+            </div>
+          )}
+          {!isDatabaseLoading && isDatabaseConnected && (
+            <div className="flex items-center gap-2 text-green-300 text-sm">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              Cloud Connected
+            </div>
+          )}
           
           {/* DM/Player Mode Toggle */}
           <div className="flex items-center gap-2 bg-slate-700/50 rounded-lg p-1 border border-slate-600">
@@ -54,6 +72,22 @@ const Header = ({
 
         {/* Controls */}
         <div className="flex flex-wrap gap-3 items-center">
+          
+          {/* Grid Size Control - Always visible */}
+          <div className="flex items-center gap-2 bg-slate-700/50 rounded-lg p-1 border border-slate-600">
+            <Grid3X3 size={16} className="text-slate-400 ml-2" />
+            <select
+              value={gridSize}
+              onChange={(e) => onGridSizeChange(parseInt(e.target.value))}
+              className="bg-transparent border-none text-white text-sm font-medium focus:outline-none focus:ring-0 pr-2"
+            >
+              <option value={10} className="bg-slate-700">10×10</option>
+              <option value={15} className="bg-slate-700">15×15</option>
+              <option value={20} className="bg-slate-700">20×20</option>
+              <option value={25} className="bg-slate-700">25×25</option>
+              <option value={30} className="bg-slate-700">30×30</option>
+            </select>
+          </div>
           
           {/* DM-only controls */}
           {isDMMode && (
@@ -122,11 +156,18 @@ const Header = ({
       </div>
       
       {/* Mode indicator */}
-      <div className="mt-3 flex items-center gap-2">
-        <div className={`w-2 h-2 rounded-full ${isDMMode ? 'bg-red-500' : 'bg-blue-500'}`}></div>
-        <span className="text-xs text-slate-400">
-          {isDMMode ? 'Dungeon Master Mode - All controls available' : 'Player Mode - View only with chat access'}
-        </span>
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${isDMMode ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+          <span className="text-xs text-slate-400">
+            {isDMMode ? 'Dungeon Master Mode - All controls available' : 'Player Mode - Full access to character management'}
+          </span>
+        </div>
+        
+        {/* Grid Size indicator */}
+        <div className="text-xs text-slate-400">
+          Grid: {gridSize}×{gridSize} • {showGrid ? `${gridColor} grid` : 'No grid'} • {showNames ? 'Names visible' : 'Names hidden'}
+        </div>
       </div>
     </div>
   );
