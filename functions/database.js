@@ -1,4 +1,4 @@
-// functions/database.js - Enhanced with better error handling and debugging
+// functions/database.js - Fixed version with better error handling and null checks
 import { neon } from '@netlify/neon';
 
 const sql = neon(); // This will work on the server-side with NETLIFY_DATABASE_URL
@@ -112,7 +112,7 @@ export default async (request, context) => {
     const sessionId = url.searchParams.get('sessionId') || 'default';
     const userId = url.searchParams.get('userId') || 'anonymous';
     
-    console.log(`📨 Database function called: ${operation} for session: ${sessionId}`);
+    console.log(`📨 Database function called: ${operation} for session: ${sessionId}, user: ${userId}`);
     
     // Check if database is available
     if (!process.env.NETLIFY_DATABASE_URL && !process.env.DATABASE_URL) {
@@ -174,34 +174,87 @@ export default async (request, context) => {
         if (request.method === 'POST') {
           console.log('👥 User joining session:', { sessionId, userId });
           
-          const { userName, userColor, isDM } = await request.json();
+          let requestBody;
+          try {
+            const bodyText = await request.text();
+            console.log('📄 Raw request body:', bodyText);
+            requestBody = JSON.parse(bodyText);
+          } catch (error) {
+            console.error('❌ Failed to parse request body:', error);
+            return new Response(JSON.stringify({
+              error: 'Invalid request body',
+              success: false
+            }), { 
+              status: 400,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
+          
+          const { userName, userColor, isDM } = requestBody;
           console.log('📝 User data:', { userName, userColor, isDM });
           
-          // Upsert user in session
-          await sql`
-            INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
-            VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM}, NOW())
-            ON CONFLICT (id) 
-            DO UPDATE SET 
-              user_name = ${userName},
-              user_color = ${userColor},
-              is_dm = ${isDM},
-              last_seen = NOW()
-          `;
-          console.log('✅ User added to session_users table');
+          // Validate required fields
+          if (!userName || !userColor) {
+            console.error('❌ Missing required fields:', { userName, userColor });
+            return new Response(JSON.stringify({
+              error: 'Missing userName or userColor',
+              success: false
+            }), { 
+              status: 400,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
+          
+          try {
+            // Upsert user in session
+            await sql`
+              INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
+              VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM || false}, NOW())
+              ON CONFLICT (id) 
+              DO UPDATE SET 
+                session_id = ${sessionId},
+                user_name = ${userName},
+                user_color = ${userColor},
+                is_dm = ${isDM || false},
+                last_seen = NOW()
+            `;
+            console.log('✅ User added to session_users table');
 
-          // Add session update
-          await sql`
-            INSERT INTO session_updates (session_id, update_type, data, updated_by)
-            VALUES (${sessionId}, 'user_joined', ${JSON.stringify({ userName, userColor, isDM })}, ${userId})
-          `;
-          console.log('✅ Session update recorded');
+            // Add session update
+            const updateData = { 
+              userName: userName, 
+              userColor: userColor, 
+              isDM: isDM || false,
+              userId: userId
+            };
+            
+            await sql`
+              INSERT INTO session_updates (session_id, update_type, data, updated_by)
+              VALUES (${sessionId}, 'user_joined', ${JSON.stringify(updateData)}, ${userId})
+            `;
+            console.log('✅ Session update recorded');
 
-          const successResponse = { success: true, message: 'Successfully joined session' };
-          console.log('🎉 Join session successful:', successResponse);
-          return new Response(JSON.stringify(successResponse), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+            const successResponse = { 
+              success: true, 
+              message: 'Successfully joined session',
+              sessionId: sessionId,
+              userId: userId
+            };
+            console.log('🎉 Join session successful:', successResponse);
+            return new Response(JSON.stringify(successResponse), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (dbError) {
+            console.error('💥 Database error in join-session:', dbError);
+            return new Response(JSON.stringify({
+              error: 'Database error while joining session',
+              success: false,
+              details: dbError.message
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
@@ -209,199 +262,415 @@ export default async (request, context) => {
         if (request.method === 'POST') {
           console.log('👋 User leaving session:', { sessionId, userId });
           
-          await sql`DELETE FROM session_users WHERE id = ${userId}`;
-          
-          // Add session update
-          await sql`
-            INSERT INTO session_updates (session_id, update_type, data, updated_by)
-            VALUES (${sessionId}, 'user_left', ${JSON.stringify({ userId })}, ${userId})
-          `;
+          try {
+            await sql`DELETE FROM session_users WHERE id = ${userId} AND session_id = ${sessionId}`;
+            
+            // Add session update
+            const updateData = { userId: userId };
+            await sql`
+              INSERT INTO session_updates (session_id, update_type, data, updated_by)
+              VALUES (${sessionId}, 'user_left', ${JSON.stringify(updateData)}, ${userId})
+            `;
 
-          const successResponse = { success: true, message: 'Successfully left session' };
-          console.log('✅ Leave session successful:', successResponse);
-          return new Response(JSON.stringify(successResponse), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+            const successResponse = { 
+              success: true, 
+              message: 'Successfully left session',
+              sessionId: sessionId,
+              userId: userId
+            };
+            console.log('✅ Leave session successful:', successResponse);
+            return new Response(JSON.stringify(successResponse), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (dbError) {
+            console.error('💥 Database error in leave-session:', dbError);
+            return new Response(JSON.stringify({
+              error: 'Database error while leaving session',
+              success: false,
+              details: dbError.message
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
       case 'heartbeat':
         if (request.method === 'POST') {
-          const { cursorX, cursorY } = await request.json();
-          
-          await sql`
-            UPDATE session_users 
-            SET last_seen = NOW(), cursor_x = ${cursorX || 0}, cursor_y = ${cursorY || 0}
-            WHERE id = ${userId}
-          `;
+          try {
+            const bodyText = await request.text();
+            const { cursorX, cursorY } = bodyText ? JSON.parse(bodyText) : {};
+            
+            await sql`
+              UPDATE session_users 
+              SET last_seen = NOW(), cursor_x = ${cursorX || 0}, cursor_y = ${cursorY || 0}
+              WHERE id = ${userId} AND session_id = ${sessionId}
+            `;
 
-          return new Response(JSON.stringify({ success: true }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+            return new Response(JSON.stringify({ success: true }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (error) {
+            console.error('💥 Heartbeat error:', error);
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: error.message 
+            }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
       case 'get-session-users':
-        const users = await sql`
-          SELECT * FROM session_users 
-          WHERE session_id = ${sessionId} 
-          AND last_seen > NOW() - INTERVAL '5 minutes'
-          ORDER BY created_at ASC
-        `;
-        return new Response(JSON.stringify(users), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          const users = await sql`
+            SELECT * FROM session_users 
+            WHERE session_id = ${sessionId} 
+            AND last_seen > NOW() - INTERVAL '5 minutes'
+            ORDER BY created_at ASC
+          `;
+          console.log(`📋 Found ${users.length} active users in session ${sessionId}`);
+          return new Response(JSON.stringify(users), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Error getting session users:', error);
+          return new Response(JSON.stringify([]), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
       // Real-time sync
       case 'get-updates':
-        const since = url.searchParams.get('since') || '1970-01-01';
-        const updates = await sql`
-          SELECT * FROM session_updates 
-          WHERE session_id = ${sessionId} 
-          AND created_at > ${since}
-          AND updated_by != ${userId}
-          ORDER BY created_at ASC
-          LIMIT 50
-        `;
-        return new Response(JSON.stringify(updates), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          const since = url.searchParams.get('since') || '1970-01-01';
+          console.log(`🔄 Getting updates since ${since} for session ${sessionId}, excluding user ${userId}`);
+          
+          const updates = await sql`
+            SELECT * FROM session_updates 
+            WHERE session_id = ${sessionId} 
+            AND created_at > ${since}
+            AND updated_by != ${userId}
+            ORDER BY created_at ASC
+            LIMIT 50
+          `;
+          
+          console.log(`📦 Found ${updates.length} updates for session ${sessionId}`);
+          
+          // Filter out any null data before sending
+          const validUpdates = updates.filter(update => 
+            update && update.data && update.update_type && update.updated_by
+          );
+          
+          console.log(`✅ Sending ${validUpdates.length} valid updates`);
+          return new Response(JSON.stringify(validUpdates), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Error getting updates:', error);
+          return new Response(JSON.stringify([]), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
       case 'save-image':
         if (request.method === 'POST') {
-          const { imageData, imageType, name } = await request.json();
-          const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          
-          const mimeMatch = imageData.match(/data:([^;]+);/);
-          const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-          const sizeBytes = Math.round((imageData.length * 3) / 4);
-          
-          await sql`
-            INSERT INTO images (id, session_id, name, type, data, mime_type, size_bytes, updated_at)
-            VALUES (${imageId}, ${sessionId}, ${name}, ${imageType}, ${imageData}, ${mimeType}, ${sizeBytes}, NOW())
-          `;
-          
-          return new Response(JSON.stringify({ imageId }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+          try {
+            const bodyText = await request.text();
+            const { imageData, imageType, name } = JSON.parse(bodyText);
+            
+            if (!imageData || !name) {
+              return new Response(JSON.stringify({ 
+                error: 'Missing imageData or name' 
+              }), { 
+                status: 400,
+                headers: { ...headers, 'Content-Type': 'application/json' } 
+              });
+            }
+            
+            const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            const mimeMatch = imageData.match(/data:([^;]+);/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+            const sizeBytes = Math.round((imageData.length * 3) / 4);
+            
+            await sql`
+              INSERT INTO images (id, session_id, name, type, data, mime_type, size_bytes, updated_at)
+              VALUES (${imageId}, ${sessionId}, ${name}, ${imageType || 'sprite'}, ${imageData}, ${mimeType}, ${sizeBytes}, NOW())
+            `;
+            
+            console.log(`✅ Image saved: ${imageId}`);
+            return new Response(JSON.stringify({ imageId }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (error) {
+            console.error('💥 Error saving image:', error);
+            return new Response(JSON.stringify({ 
+              error: 'Failed to save image', 
+              details: error.message 
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
       case 'get-image':
-        const imageId = url.searchParams.get('imageId');
-        if (imageId) {
+        try {
+          const imageId = url.searchParams.get('imageId');
+          if (!imageId) {
+            return new Response(JSON.stringify({ data: null }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
+          
           const [image] = await sql`SELECT * FROM images WHERE id = ${imageId}`;
-          return new Response(JSON.stringify(image ? { data: image.data } : null), { 
+          return new Response(JSON.stringify(image ? { data: image.data } : { data: null }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Error getting image:', error);
+          return new Response(JSON.stringify({ data: null }), { 
             headers: { ...headers, 'Content-Type': 'application/json' } 
           });
         }
-        break;
 
       case 'save-character':
         if (request.method === 'POST') {
-          const character = await request.json();
-          await sql`
-            INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
-            VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, NOW(), ${userId})
-            ON CONFLICT (id) 
-            DO UPDATE SET 
-              name = ${character.name},
-              data = ${JSON.stringify(character)},
-              updated_at = NOW(),
-              updated_by = ${userId}
-          `;
+          try {
+            const bodyText = await request.text();
+            const character = JSON.parse(bodyText);
+            
+            if (!character || !character.id || !character.name) {
+              console.error('❌ Invalid character data:', character);
+              return new Response(JSON.stringify({ 
+                success: false, 
+                error: 'Invalid character data' 
+              }), { 
+                status: 400,
+                headers: { ...headers, 'Content-Type': 'application/json' } 
+              });
+            }
+            
+            await sql`
+              INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
+              VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, NOW(), ${userId})
+              ON CONFLICT (id) 
+              DO UPDATE SET 
+                session_id = ${sessionId},
+                name = ${character.name},
+                data = ${JSON.stringify(character)},
+                updated_at = NOW(),
+                updated_by = ${userId}
+            `;
 
-          // Add session update for real-time sync
-          await sql`
-            INSERT INTO session_updates (session_id, update_type, data, updated_by)
-            VALUES (${sessionId}, 'character_updated', ${JSON.stringify(character)}, ${userId})
-          `;
-          
-          return new Response(JSON.stringify({ success: true }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+            // Add session update for real-time sync
+            await sql`
+              INSERT INTO session_updates (session_id, update_type, data, updated_by)
+              VALUES (${sessionId}, 'character_updated', ${JSON.stringify(character)}, ${userId})
+            `;
+            
+            console.log(`✅ Character saved: ${character.name} (${character.id})`);
+            return new Response(JSON.stringify({ success: true }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (error) {
+            console.error('💥 Error saving character:', error);
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'Failed to save character',
+              details: error.message 
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
       case 'load-characters':
-        const characters = await sql`
-          SELECT * FROM characters 
-          WHERE session_id = ${sessionId}
-          ORDER BY updated_at DESC
-        `;
-        return new Response(JSON.stringify(characters.map(row => row.data)), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          const characters = await sql`
+            SELECT * FROM characters 
+            WHERE session_id = ${sessionId}
+            ORDER BY updated_at DESC
+          `;
+          
+          const characterData = characters.map(row => {
+            try {
+              return row.data;
+            } catch (error) {
+              console.error('Error parsing character data:', error);
+              return null;
+            }
+          }).filter(char => char !== null);
+          
+          console.log(`📋 Loaded ${characterData.length} characters for session ${sessionId}`);
+          return new Response(JSON.stringify(characterData), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Error loading characters:', error);
+          return new Response(JSON.stringify([]), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
       case 'delete-character':
         if (request.method === 'DELETE') {
-          const characterId = url.searchParams.get('characterId');
-          await sql`DELETE FROM characters WHERE id = ${characterId} AND session_id = ${sessionId}`;
-          
-          // Add session update
-          await sql`
-            INSERT INTO session_updates (session_id, update_type, data, updated_by)
-            VALUES (${sessionId}, 'character_deleted', ${JSON.stringify({ characterId })}, ${userId})
-          `;
-          
-          return new Response(JSON.stringify({ success: true }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+          try {
+            const characterId = url.searchParams.get('characterId');
+            if (!characterId) {
+              return new Response(JSON.stringify({ 
+                success: false, 
+                error: 'Missing characterId' 
+              }), { 
+                status: 400,
+                headers: { ...headers, 'Content-Type': 'application/json' } 
+              });
+            }
+            
+            await sql`DELETE FROM characters WHERE id = ${characterId} AND session_id = ${sessionId}`;
+            
+            // Add session update
+            await sql`
+              INSERT INTO session_updates (session_id, update_type, data, updated_by)
+              VALUES (${sessionId}, 'character_deleted', ${JSON.stringify({ characterId })}, ${userId})
+            `;
+            
+            console.log(`🗑️ Character deleted: ${characterId}`);
+            return new Response(JSON.stringify({ success: true }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (error) {
+            console.error('💥 Error deleting character:', error);
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'Failed to delete character',
+              details: error.message 
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
       case 'save-game-state':
         if (request.method === 'POST') {
-          const gameState = await request.json();
-          await sql`
-            INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
-            VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, NOW(), ${userId})
-            ON CONFLICT (id) 
-            DO UPDATE SET 
-              data = ${JSON.stringify(gameState)},
-              updated_at = NOW(),
-              updated_by = ${userId}
-          `;
+          try {
+            const bodyText = await request.text();
+            const gameState = JSON.parse(bodyText);
+            
+            if (!gameState) {
+              return new Response(JSON.stringify({ 
+                success: false, 
+                error: 'Missing game state data' 
+              }), { 
+                status: 400,
+                headers: { ...headers, 'Content-Type': 'application/json' } 
+              });
+            }
+            
+            await sql`
+              INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
+              VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, NOW(), ${userId})
+              ON CONFLICT (id) 
+              DO UPDATE SET 
+                name = ${gameState.name || 'Game Session'},
+                data = ${JSON.stringify(gameState)},
+                updated_at = NOW(),
+                updated_by = ${userId}
+            `;
 
-          // Add session update
-          await sql`
-            INSERT INTO session_updates (session_id, update_type, data, updated_by)
-            VALUES (${sessionId}, 'game_state_updated', ${JSON.stringify({ terrain: gameState.terrain, gridSize: gameState.gridSize })}, ${userId})
-          `;
-          
-          return new Response(JSON.stringify({ success: true }), { 
-            headers: { ...headers, 'Content-Type': 'application/json' } 
-          });
+            // Add session update for terrain/grid changes only
+            if (gameState.terrain !== undefined || gameState.gridSize !== undefined) {
+              const updateData = {};
+              if (gameState.terrain !== undefined) updateData.terrain = gameState.terrain;
+              if (gameState.gridSize !== undefined) updateData.gridSize = gameState.gridSize;
+              
+              await sql`
+                INSERT INTO session_updates (session_id, update_type, data, updated_by)
+                VALUES (${sessionId}, 'game_state_updated', ${JSON.stringify(updateData)}, ${userId})
+              `;
+            }
+            
+            console.log(`✅ Game state saved for session: ${sessionId}`);
+            return new Response(JSON.stringify({ success: true }), { 
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          } catch (error) {
+            console.error('💥 Error saving game state:', error);
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'Failed to save game state',
+              details: error.message 
+            }), { 
+              status: 500,
+              headers: { ...headers, 'Content-Type': 'application/json' } 
+            });
+          }
         }
         break;
 
       case 'load-game-state':
-        const [gameSession] = await sql`
-          SELECT * FROM game_sessions WHERE id = ${sessionId}
-        `;
-        return new Response(JSON.stringify(gameSession ? gameSession.data : null), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          const [gameSession] = await sql`
+            SELECT * FROM game_sessions WHERE id = ${sessionId}
+          `;
+          
+          const gameData = gameSession ? gameSession.data : null;
+          console.log(`📋 Loaded game state for session ${sessionId}:`, gameData ? 'Found' : 'Not found');
+          
+          return new Response(JSON.stringify(gameData), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Error loading game state:', error);
+          return new Response(JSON.stringify(null), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
       // Cleanup old session updates (called periodically)
       case 'cleanup':
-        await sql`
-          DELETE FROM session_updates 
-          WHERE created_at < NOW() - INTERVAL '1 hour'
-        `;
-        await sql`
-          DELETE FROM session_users 
-          WHERE last_seen < NOW() - INTERVAL '10 minutes'
-        `;
-        return new Response(JSON.stringify({ success: true }), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          await sql`
+            DELETE FROM session_updates 
+            WHERE created_at < NOW() - INTERVAL '1 hour'
+          `;
+          await sql`
+            DELETE FROM session_users 
+            WHERE last_seen < NOW() - INTERVAL '10 minutes'
+          `;
+          
+          console.log('🧹 Cleanup completed');
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (error) {
+          console.error('💥 Cleanup error:', error);
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: error.message 
+          }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
       default:
         console.error('❌ Unknown operation:', operation);
         return new Response(JSON.stringify({ 
           error: `Unknown operation: ${operation}`,
-          availableOperations: ['health', 'stats', 'join-session', 'leave-session']
+          availableOperations: [
+            'health', 'stats', 'join-session', 'leave-session', 'heartbeat',
+            'get-session-users', 'get-updates', 'save-character', 'load-characters',
+            'delete-character', 'save-game-state', 'load-game-state', 'save-image',
+            'get-image', 'cleanup'
+          ]
         }), { 
           status: 400, 
           headers: { ...headers, 'Content-Type': 'application/json' } 
@@ -415,6 +684,9 @@ export default async (request, context) => {
     const errorResponse = {
       error: error.message,
       healthy: false,
+      operation: url.searchParams.get('operation'),
+      sessionId: url.searchParams.get('sessionId'),
+      userId: url.searchParams.get('userId'),
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       timestamp: new Date().toISOString()
     };
