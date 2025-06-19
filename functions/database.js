@@ -1,5 +1,5 @@
-// functions/database.js - Complete Fixed version with better error handling and null checks
-import { neon } from '@neondatabase/serverless'; // FIXED: Use correct package
+// functions/database.js - FIXED VERSION with corrected schema
+import { neon } from '@neondatabase/serverless';
 
 // FIXED: Explicit environment variable handling
 const getDatabaseUrl = () => {
@@ -12,8 +12,9 @@ const getDatabaseUrl = () => {
   return url;
 };
 
-// Initialize database tables
+// Initialize database tables with FIXED schema
 const initDatabase = async () => {
+  let sql;
   try {
     console.log('🔧 Initializing database tables...');
     
@@ -23,91 +24,95 @@ const initDatabase = async () => {
     }
     
     // FIXED: Pass URL explicitly to neon()
-    const sql = neon(databaseUrl);
+    sql = neon(databaseUrl);
     
-    // Characters table
+    // FIXED: Create tables in correct order and with proper syntax
+    console.log('Creating characters table...');
     await sql`
       CREATE TABLE IF NOT EXISTS characters (
-        id VARCHAR PRIMARY KEY,
-        session_id VARCHAR NOT NULL DEFAULT 'default',
-        name VARCHAR NOT NULL,
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL DEFAULT 'default',
+        name TEXT NOT NULL,
         data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        updated_by VARCHAR DEFAULT 'system'
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by TEXT DEFAULT 'system'
       )
     `;
     console.log('✅ Characters table ready');
 
-    // Images table for storing sprites and portraits
+    console.log('Creating images table...');
     await sql`
       CREATE TABLE IF NOT EXISTS images (
-        id VARCHAR PRIMARY KEY,
-        session_id VARCHAR DEFAULT 'default',
-        name VARCHAR NOT NULL,
-        type VARCHAR NOT NULL,
+        id TEXT PRIMARY KEY,
+        session_id TEXT DEFAULT 'default',
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
         data TEXT NOT NULL,
-        mime_type VARCHAR DEFAULT 'image/png',
+        mime_type TEXT DEFAULT 'image/png',
         size_bytes INTEGER,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
     console.log('✅ Images table ready');
 
-    // Game sessions table
+    console.log('Creating game_sessions table...');
     await sql`
       CREATE TABLE IF NOT EXISTS game_sessions (
-        id VARCHAR PRIMARY KEY,
-        name VARCHAR NOT NULL,
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
         data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        updated_by VARCHAR DEFAULT 'system'
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by TEXT DEFAULT 'system'
       )
     `;
     console.log('✅ Game sessions table ready');
 
-    // Session users table - track who's in each session
+    console.log('Creating session_users table...');
     await sql`
       CREATE TABLE IF NOT EXISTS session_users (
-        id VARCHAR PRIMARY KEY,
-        session_id VARCHAR NOT NULL,
-        user_name VARCHAR NOT NULL,
-        user_color VARCHAR DEFAULT '#6366f1',
-        last_seen TIMESTAMP DEFAULT NOW(),
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        user_name TEXT NOT NULL,
+        user_color TEXT DEFAULT '#6366f1',
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_dm BOOLEAN DEFAULT false,
         cursor_x INTEGER DEFAULT 0,
         cursor_y INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT NOW()
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
     console.log('✅ Session users table ready');
 
-    // Session updates table - track changes for real-time sync
+    console.log('Creating session_updates table...');
     await sql`
       CREATE TABLE IF NOT EXISTS session_updates (
         id SERIAL PRIMARY KEY,
-        session_id VARCHAR NOT NULL,
-        update_type VARCHAR NOT NULL,
+        session_id TEXT NOT NULL,
+        update_type TEXT NOT NULL,
         data JSONB NOT NULL,
-        updated_by VARCHAR NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
+        updated_by TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
     console.log('✅ Session updates table ready');
 
     // Create indexes for better performance
+    console.log('Creating indexes...');
     await sql`CREATE INDEX IF NOT EXISTS idx_characters_session ON characters(session_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_session_users_session ON session_users(session_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_session_updates_session ON session_updates(session_id, created_at DESC)`;
     console.log('✅ Database indexes ready');
 
     console.log('🎉 Database initialization completed successfully!');
-    return { success: true, sql }; // Return sql instance for reuse
+    return { success: true, sql };
   } catch (error) {
     console.error('💥 Database initialization error:', error);
-    return { success: false, error: error.message };
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    return { success: false, error: error.message, details: error };
   }
 };
 
@@ -131,14 +136,14 @@ export default async (request, context) => {
     
     console.log(`📨 Database function called: ${operation} for session: ${sessionId}, user: ${userId}`);
     
-    // FIXED: Better database initialization with error details
+    // FIXED: Better database initialization with detailed error reporting
     const initResult = await initDatabase();
     if (!initResult.success) {
       console.error('❌ Database initialization failed:', initResult.error);
       return new Response(JSON.stringify({
         error: `Database initialization failed: ${initResult.error}`,
         healthy: false,
-        details: initResult.error
+        details: initResult.details
       }), { 
         status: 500,
         headers: { ...headers, 'Content-Type': 'application/json' } 
@@ -151,34 +156,58 @@ export default async (request, context) => {
     switch (operation) {
       case 'health':
         console.log('🏥 Health check requested');
-        const [result] = await sql`SELECT NOW() as current_time`;
-        const healthResponse = {
-          healthy: true,
-          timestamp: result.current_time,
-          message: 'Database connection successful'
-        };
-        console.log('✅ Health check passed:', healthResponse);
-        return new Response(JSON.stringify(healthResponse), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          const [result] = await sql`SELECT CURRENT_TIMESTAMP as current_time`;
+          const healthResponse = {
+            healthy: true,
+            timestamp: result.current_time,
+            message: 'Database connection successful'
+          };
+          console.log('✅ Health check passed:', healthResponse);
+          return new Response(JSON.stringify(healthResponse), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (healthError) {
+          console.error('💥 Health check failed:', healthError);
+          return new Response(JSON.stringify({
+            healthy: false,
+            error: healthError.message,
+            timestamp: new Date().toISOString()
+          }), { 
+            status: 500,
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
       case 'stats':
         console.log('📊 Stats requested for session:', sessionId);
-        const [charCount] = await sql`SELECT COUNT(*) as count FROM characters WHERE session_id = ${sessionId}`;
-        const [imageCount] = await sql`SELECT COUNT(*) as count FROM images WHERE session_id = ${sessionId}`;
-        const [userCount] = await sql`SELECT COUNT(*) as count FROM session_users WHERE session_id = ${sessionId} AND last_seen > NOW() - INTERVAL '5 minutes'`;
-        const stats = {
-          characters: parseInt(charCount.count),
-          images: parseInt(imageCount.count),
-          activeUsers: parseInt(userCount.count),
-          sessionId
-        };
-        console.log('📈 Stats result:', stats);
-        return new Response(JSON.stringify(stats), { 
-          headers: { ...headers, 'Content-Type': 'application/json' } 
-        });
+        try {
+          const [charCount] = await sql`SELECT COUNT(*) as count FROM characters WHERE session_id = ${sessionId}`;
+          const [imageCount] = await sql`SELECT COUNT(*) as count FROM images WHERE session_id = ${sessionId}`;
+          const [userCount] = await sql`SELECT COUNT(*) as count FROM session_users WHERE session_id = ${sessionId} AND last_seen > CURRENT_TIMESTAMP - INTERVAL '5 minutes'`;
+          const stats = {
+            characters: parseInt(charCount.count),
+            images: parseInt(imageCount.count),
+            activeUsers: parseInt(userCount.count),
+            sessionId
+          };
+          console.log('📈 Stats result:', stats);
+          return new Response(JSON.stringify(stats), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        } catch (statsError) {
+          console.error('💥 Stats error:', statsError);
+          return new Response(JSON.stringify({
+            characters: 0,
+            images: 0,
+            activeUsers: 0,
+            sessionId,
+            error: statsError.message
+          }), { 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          });
+        }
 
-      // Session Management
       case 'join-session':
         if (request.method === 'POST') {
           console.log('👥 User joining session:', { sessionId, userId });
@@ -215,18 +244,27 @@ export default async (request, context) => {
           }
           
           try {
-            // Upsert user in session
-            await sql`
-              INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
-              VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM || false}, NOW())
-              ON CONFLICT (id) 
-              DO UPDATE SET 
-                session_id = ${sessionId},
-                user_name = ${userName},
-                user_color = ${userColor},
-                is_dm = ${isDM || false},
-                last_seen = NOW()
-            `;
+            // FIXED: Use INSERT ... ON CONFLICT instead of UPSERT
+            const existing = await sql`SELECT id FROM session_users WHERE id = ${userId}`;
+            
+            if (existing.length > 0) {
+              // Update existing user
+              await sql`
+                UPDATE session_users 
+                SET session_id = ${sessionId},
+                    user_name = ${userName},
+                    user_color = ${userColor},
+                    is_dm = ${isDM || false},
+                    last_seen = CURRENT_TIMESTAMP
+                WHERE id = ${userId}
+              `;
+            } else {
+              // Insert new user
+              await sql`
+                INSERT INTO session_users (id, session_id, user_name, user_color, is_dm, last_seen)
+                VALUES (${userId}, ${sessionId}, ${userName}, ${userColor}, ${isDM || false}, CURRENT_TIMESTAMP)
+              `;
+            }
             console.log('✅ User added to session_users table');
 
             // Add session update
@@ -313,7 +351,7 @@ export default async (request, context) => {
             
             await sql`
               UPDATE session_users 
-              SET last_seen = NOW(), cursor_x = ${cursorX || 0}, cursor_y = ${cursorY || 0}
+              SET last_seen = CURRENT_TIMESTAMP, cursor_x = ${cursorX || 0}, cursor_y = ${cursorY || 0}
               WHERE id = ${userId} AND session_id = ${sessionId}
             `;
 
@@ -337,7 +375,7 @@ export default async (request, context) => {
           const users = await sql`
             SELECT * FROM session_users 
             WHERE session_id = ${sessionId} 
-            AND last_seen > NOW() - INTERVAL '5 minutes'
+            AND last_seen > CURRENT_TIMESTAMP - INTERVAL '5 minutes'
             ORDER BY created_at ASC
           `;
           console.log(`📋 Found ${users.length} active users in session ${sessionId}`);
@@ -351,7 +389,6 @@ export default async (request, context) => {
           });
         }
 
-      // Real-time sync
       case 'get-updates':
         try {
           const since = url.searchParams.get('since') || '1970-01-01';
@@ -360,7 +397,7 @@ export default async (request, context) => {
           const updates = await sql`
             SELECT * FROM session_updates 
             WHERE session_id = ${sessionId} 
-            AND created_at > ${since}
+            AND created_at > ${since}::timestamp
             AND updated_by != ${userId}
             ORDER BY created_at ASC
             LIMIT 50
@@ -407,7 +444,7 @@ export default async (request, context) => {
             
             await sql`
               INSERT INTO images (id, session_id, name, type, data, mime_type, size_bytes, updated_at)
-              VALUES (${imageId}, ${sessionId}, ${name}, ${imageType || 'sprite'}, ${imageData}, ${mimeType}, ${sizeBytes}, NOW())
+              VALUES (${imageId}, ${sessionId}, ${name}, ${imageType || 'sprite'}, ${imageData}, ${mimeType}, ${sizeBytes}, CURRENT_TIMESTAMP)
             `;
             
             console.log(`✅ Image saved: ${imageId}`);
@@ -464,17 +501,27 @@ export default async (request, context) => {
               });
             }
             
-            await sql`
-              INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
-              VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, NOW(), ${userId})
-              ON CONFLICT (id) 
-              DO UPDATE SET 
-                session_id = ${sessionId},
-                name = ${character.name},
-                data = ${JSON.stringify(character)},
-                updated_at = NOW(),
-                updated_by = ${userId}
-            `;
+            // Check if character exists
+            const existing = await sql`SELECT id FROM characters WHERE id = ${character.id}`;
+            
+            if (existing.length > 0) {
+              // Update existing character
+              await sql`
+                UPDATE characters 
+                SET session_id = ${sessionId},
+                    name = ${character.name},
+                    data = ${JSON.stringify(character)},
+                    updated_at = CURRENT_TIMESTAMP,
+                    updated_by = ${userId}
+                WHERE id = ${character.id}
+              `;
+            } else {
+              // Insert new character
+              await sql`
+                INSERT INTO characters (id, session_id, name, data, updated_at, updated_by)
+                VALUES (${character.id}, ${sessionId}, ${character.name}, ${JSON.stringify(character)}, CURRENT_TIMESTAMP, ${userId})
+              `;
+            }
 
             // Add session update for real-time sync
             await sql`
@@ -584,16 +631,26 @@ export default async (request, context) => {
               });
             }
             
-            await sql`
-              INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
-              VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, NOW(), ${userId})
-              ON CONFLICT (id) 
-              DO UPDATE SET 
-                name = ${gameState.name || 'Game Session'},
-                data = ${JSON.stringify(gameState)},
-                updated_at = NOW(),
-                updated_by = ${userId}
-            `;
+            // Check if game session exists
+            const existing = await sql`SELECT id FROM game_sessions WHERE id = ${sessionId}`;
+            
+            if (existing.length > 0) {
+              // Update existing game session
+              await sql`
+                UPDATE game_sessions 
+                SET name = ${gameState.name || 'Game Session'},
+                    data = ${JSON.stringify(gameState)},
+                    updated_at = CURRENT_TIMESTAMP,
+                    updated_by = ${userId}
+                WHERE id = ${sessionId}
+              `;
+            } else {
+              // Insert new game session
+              await sql`
+                INSERT INTO game_sessions (id, name, data, updated_at, updated_by)
+                VALUES (${sessionId}, ${gameState.name || 'Game Session'}, ${JSON.stringify(gameState)}, CURRENT_TIMESTAMP, ${userId})
+              `;
+            }
 
             // Add session update for terrain/grid changes only
             if (gameState.terrain !== undefined || gameState.gridSize !== undefined) {
@@ -644,16 +701,15 @@ export default async (request, context) => {
           });
         }
 
-      // Cleanup old session updates (called periodically)
       case 'cleanup':
         try {
           await sql`
             DELETE FROM session_updates 
-            WHERE created_at < NOW() - INTERVAL '1 hour'
+            WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '1 hour'
           `;
           await sql`
             DELETE FROM session_users 
-            WHERE last_seen < NOW() - INTERVAL '10 minutes'
+            WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '10 minutes'
           `;
           
           console.log('🧹 Cleanup completed');
@@ -670,13 +726,10 @@ export default async (request, context) => {
           });
         }
 
-      // ADDED: Test endpoint for debugging
       case 'test':
         console.log('🧪 Testing database connection...');
-        console.log('Environment variables available:', Object.keys(process.env).filter(key => key.includes('DATABASE')));
-        
         try {
-          const testQuery = await sql`SELECT NOW() as test_time, version() as postgres_version`;
+          const testQuery = await sql`SELECT CURRENT_TIMESTAMP as test_time, version() as postgres_version`;
           console.log('✅ Database test successful:', testQuery[0]);
           
           return new Response(JSON.stringify({
@@ -725,7 +778,6 @@ export default async (request, context) => {
   } catch (error) {
     console.error('💥 Database function error:', error);
     
-    // More detailed error information
     const errorResponse = {
       error: error.message,
       healthy: false,
