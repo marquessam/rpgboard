@@ -1,4 +1,4 @@
-// src/App.jsx - Your working implementation with fixed database integration
+// src/App.jsx - Fixed image upload and resolution
 import React, { useState, useEffect } from 'react';
 import Header from './components/UI/Header';
 import BattleMap from './components/BattleMap/BattleMap';
@@ -24,7 +24,7 @@ import { useCharacters } from './hooks/useCharacters';
 import { useDatabase } from './hooks/useDatabase';
 
 const App = () => {
-  // Database integration with fixed architecture
+  // Database integration
   const databaseHook = useDatabase();
   const {
     isConnected: isDatabaseConnected,
@@ -55,7 +55,7 @@ const App = () => {
   const [editingCharacter, setEditingCharacter] = useState(null);
   const [uploadError, setUploadError] = useState(null);
   
-  // Current actor state (based on selected token)
+  // Current actor state
   const [currentActor, setCurrentActor] = useState(null);
   const [selectedCharacterForActions, setSelectedCharacterForActions] = useState(null);
   const [activeRightTab, setActiveRightTab] = useState('actions');
@@ -107,6 +107,169 @@ const App = () => {
   const [chatMessages, setChatMessages] = useLocalStorage('chatMessages', []);
   const [playerMessage, setPlayerMessage] = useState('');
   const [playerName, setPlayerName] = useState('');
+
+  // Helper function to resolve image data
+  const resolveImageData = async (imageReference) => {
+    if (!imageReference) return null;
+    
+    // If it's already a data URL, return as-is
+    if (imageReference.startsWith('data:')) {
+      return imageReference;
+    }
+    
+    // If it's a database ID and we're connected, fetch the image
+    if (imageReference.startsWith('img_') && isDatabaseConnected && getImage) {
+      try {
+        const imageData = await getImage(imageReference);
+        return imageData || imageReference; // Return original if fetch fails
+      } catch (error) {
+        console.warn('Failed to resolve image:', error);
+        return imageReference;
+      }
+    }
+    
+    return imageReference;
+  };
+
+  // Enhanced character update function that resolves images and saves to database
+  const handleCharacterUpdate = async (character) => {
+    let updatedCharacter = { ...character };
+    
+    // Resolve image references if they're database IDs
+    if (character.sprite && character.sprite.startsWith('img_')) {
+      const resolvedSprite = await resolveImageData(character.sprite);
+      if (resolvedSprite !== character.sprite) {
+        updatedCharacter.sprite = resolvedSprite;
+      }
+    }
+    
+    if (character.portrait && character.portrait.startsWith('img_')) {
+      const resolvedPortrait = await resolveImageData(character.portrait);
+      if (resolvedPortrait !== character.portrait) {
+        updatedCharacter.portrait = resolvedPortrait;
+      }
+    }
+    
+    updateCharacter(updatedCharacter);
+    
+    // Update current actor if it's the same character
+    if (currentActor && currentActor.id === updatedCharacter.id) {
+      setCurrentActor(updatedCharacter);
+    }
+    
+    // Save to database if connected (save with original database IDs)
+    if (isDatabaseConnected) {
+      try {
+        await saveCharacterToDb(character); // Save original with database IDs
+        console.log(`💾 Character ${character.name} saved to database`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to save character ${character.name} to database:`, error);
+      }
+    }
+  };
+
+  // Enhanced upload handler with better image resolution
+  const handleUpload = async (file, result) => {
+    try {
+      setUploadError(null);
+      let finalResult = result;
+      let databaseId = null;
+      
+      // If database is connected, upload image to database
+      if (isDatabaseConnected && uploadImage) {
+        try {
+          const fileName = file.name || `${uploadType}_${Date.now()}`;
+          console.log(`📤 Uploading ${uploadType} to database:`, fileName);
+          
+          databaseId = await uploadImage(result, uploadType, fileName);
+          
+          if (databaseId) {
+            console.log(`✅ Image uploaded to database: ${databaseId}`);
+            // For immediate display, keep the data URL
+            // Store database ID for later saving
+          } else {
+            throw new Error('Upload returned no image ID');
+          }
+        } catch (error) {
+          console.error('💥 Database upload failed:', error);
+          setUploadError(`Database upload failed: ${error.message}`);
+          // Continue with local storage as fallback
+          console.log('📋 Falling back to local storage');
+        }
+      }
+      
+      // Apply the result - use data URL for immediate display
+      if (uploadType === 'portrait') {
+        setEditingCharacter(prev => ({ 
+          ...prev, 
+          portrait: finalResult,
+          // Store database reference separately for saving
+          _portraitDbId: databaseId
+        }));
+      } else if (uploadType === 'sprite') {
+        setEditingCharacter(prev => ({ 
+          ...prev, 
+          sprite: finalResult,
+          // Store database reference separately for saving
+          _spriteDbId: databaseId
+        }));
+      } else if (uploadType === 'terrain') {
+        setCustomTerrainSprites(prev => ({
+          ...prev,
+          [selectedTerrain]: finalResult
+        }));
+      } else if (uploadType === 'scene') {
+        setSceneImage(finalResult);
+      }
+      
+    } catch (error) {
+      console.error('💥 Upload processing failed:', error);
+      setUploadError(`Upload failed: ${error.message}`);
+      throw error;
+    }
+  };
+
+  // Modified save function for character modal
+  const handleCharacterSave = async (savedCharacter) => {
+    let characterToSave = { ...savedCharacter };
+    
+    // If we have database IDs from recent uploads, use those for saving
+    if (savedCharacter._spriteDbId) {
+      // Save with database ID for database storage
+      const dbCharacter = { ...savedCharacter, sprite: savedCharacter._spriteDbId };
+      delete dbCharacter._spriteDbId;
+      
+      if (isDatabaseConnected) {
+        await saveCharacterToDb(dbCharacter);
+      }
+      
+      // Update local state with data URL for display
+      delete characterToSave._spriteDbId;
+    }
+    
+    if (savedCharacter._portraitDbId) {
+      // Save with database ID for database storage
+      const dbCharacter = { ...savedCharacter, portrait: savedCharacter._portraitDbId };
+      delete dbCharacter._portraitDbId;
+      
+      if (isDatabaseConnected) {
+        await saveCharacterToDb(dbCharacter);
+      }
+      
+      // Update local state with data URL for display
+      delete characterToSave._portraitDbId;
+    }
+    
+    updateCharacter(characterToSave);
+    
+    // Update current actor if it's the same character
+    if (currentActor && currentActor.id === characterToSave.id) {
+      setCurrentActor(characterToSave);
+    }
+    
+    setShowCharacterModal(false);
+    setEditingCharacter(null);
+  };
 
   // Load game state from database on startup
   useEffect(() => {
@@ -189,8 +352,8 @@ const App = () => {
           terrain,
           customTerrainSprites,
           gridSize,
-          chatMessages: chatMessages.slice(-50), // Keep last 50 messages
-          combatMessages: combatMessages.slice(-50), // Keep last 50 messages
+          chatMessages: chatMessages.slice(-50),
+          combatMessages: combatMessages.slice(-50),
           isDMMode,
           showGrid,
           showNames,
@@ -204,7 +367,6 @@ const App = () => {
       }
     };
 
-    // Auto-save every 30 seconds
     const interval = setInterval(autoSave, 30000);
     return () => clearInterval(interval);
   }, [
@@ -252,11 +414,9 @@ const App = () => {
   };
 
   const handleAddMonster = (monster) => {
-    // Find a suitable position on the map
     let x = Math.floor(Math.random() * (gridSize - 5)) + 2;
     let y = Math.floor(Math.random() * (gridSize - 5)) + 2;
     
-    // Check if position is occupied and find a nearby free spot
     const occupied = characters.some(char => char.x === x && char.y === y);
     if (occupied) {
       for (let attempts = 0; attempts < 10; attempts++) {
@@ -271,7 +431,6 @@ const App = () => {
     const monsterWithPosition = { ...monster, x, y };
     const addedMonster = addMonster(monsterWithPosition);
     
-    // Add combat log message
     setCombatMessages(prev => [...prev, {
       type: 'spawn',
       text: `${monster.name} appears on the battlefield!`,
@@ -280,14 +439,12 @@ const App = () => {
   };
 
   const handleAttack = (combatResult, targetId, damage) => {
-    // Add attack to combat log
     setCombatMessages(prev => [...prev, {
       ...combatResult,
       type: combatResult.type || 'attack',
       timestamp: new Date().toLocaleTimeString()
     }]);
 
-    // Apply damage or healing
     if (targetId) {
       const target = characters.find(char => char.id === targetId);
       if (target) {
@@ -295,7 +452,6 @@ const App = () => {
         let newHp;
         
         if (damage < 0) {
-          // Healing (negative damage)
           newHp = Math.min(oldHp - damage, target.maxHp);
           updateCharacter({ ...target, hp: newHp });
           
@@ -308,7 +464,6 @@ const App = () => {
             timestamp: new Date().toLocaleTimeString()
           }]);
         } else if (damage > 0) {
-          // Damage
           newHp = Math.max(0, oldHp - damage);
           updateCharacter({ ...target, hp: newHp });
           
@@ -322,7 +477,6 @@ const App = () => {
             timestamp: new Date().toLocaleTimeString()
           }]);
 
-          // Check for death
           if (newHp <= 0) {
             setCombatMessages(prev => [...prev, {
               type: 'death',
@@ -336,13 +490,11 @@ const App = () => {
   };
 
   const handleCastSpell = (spellResult, targetId, effect) => {
-    // Add spell to combat log
     setCombatMessages(prev => [...prev, {
       ...spellResult,
       timestamp: new Date().toLocaleTimeString()
     }]);
 
-    // Apply spell effects (reuse attack handler for damage/healing)
     if (targetId && effect !== 0) {
       handleAttack(spellResult, targetId, effect);
     }
@@ -358,29 +510,23 @@ const App = () => {
     const currentHp = character.hp !== undefined ? character.hp : character.maxHp;
     const isDead = currentHp <= 0;
     
-    // Set as current actor for living characters
     if (!isDead) {
       setCurrentActor(character);
       setSelectedCharacterForActions(character);
       
-      // Auto-populate chat name if not already set
       if (!playerName || playerName === '') {
         setPlayerName(character.name);
       }
     } else if (isDead && character.isMonster) {
-      // Show loot modal for dead monsters
       setLootingCharacter(character);
       setShowLootModal(true);
     }
   };
 
-  // Updated loot handling to use currentActor properly and handle currency
   const handleTakeLoot = (lootItems) => {
-    // If no character is selected, try to use the first living non-monster character
     let receivingCharacter = currentActor;
     
     if (!receivingCharacter || (receivingCharacter.hp !== undefined ? receivingCharacter.hp : receivingCharacter.maxHp) <= 0) {
-      // Find the first living non-monster character
       receivingCharacter = characters.find(char => {
         const hp = char.hp !== undefined ? char.hp : char.maxHp;
         return hp > 0 && !char.isMonster;
@@ -392,7 +538,6 @@ const App = () => {
       }
     }
 
-    // Separate currency from regular items
     const regularItems = [];
     const currencyToAdd = { copper: 0, silver: 0, gold: 0 };
 
@@ -414,7 +559,6 @@ const App = () => {
       }
     });
 
-    // Update character with new items and currency
     const currentCurrency = receivingCharacter.currency || { copper: 0, silver: 0, gold: 0 };
     const updatedCharacter = {
       ...receivingCharacter,
@@ -431,12 +575,10 @@ const App = () => {
 
     updateCharacter(updatedCharacter);
     
-    // Update current actor if it's the same character
     if (currentActor && currentActor.id === receivingCharacter.id) {
       setCurrentActor(updatedCharacter);
     }
 
-    // Add loot to combat log
     const lootSummary = [];
     if (regularItems.length > 0) {
       lootSummary.push(`${regularItems.length} items`);
@@ -452,13 +594,11 @@ const App = () => {
       timestamp: new Date().toLocaleTimeString()
     }]);
 
-    // Mark the character as looted
     updateCharacter({
       ...lootingCharacter,
       looted: true
     });
     
-    // Show success message
     setChatMessages(prev => [...prev, {
       type: 'system',
       name: 'System',
@@ -502,26 +642,9 @@ const App = () => {
     }));
   };
 
-  // Enhanced character update function that saves to database
-  const handleCharacterUpdate = async (character) => {
-    updateCharacter(character);
-    
-    // Save to database if connected
-    if (isDatabaseConnected) {
-      try {
-        await saveCharacterToDb(character);
-        console.log(`💾 Character ${character.name} saved to database`);
-      } catch (error) {
-        console.warn(`⚠️ Failed to save character ${character.name} to database:`, error);
-      }
-    }
-  };
-
-  // Enhanced character deletion that removes from database
   const handleCharacterDelete = async (characterId) => {
     deleteCharacter(characterId);
     
-    // Delete from database if connected
     if (isDatabaseConnected) {
       try {
         await deleteCharacterFromDb(characterId);
@@ -532,58 +655,9 @@ const App = () => {
     }
   };
 
-  // Enhanced upload handler with database integration
-  const handleUpload = async (file, result) => {
-    try {
-      setUploadError(null);
-      let finalResult = result;
-      
-      // If database is connected, upload image to database
-      if (isDatabaseConnected && uploadImage) {
-        try {
-          const fileName = file.name || `${uploadType}_${Date.now()}`;
-          console.log(`📤 Uploading ${uploadType} to database:`, fileName);
-          
-          const imageId = await uploadImage(result, uploadType, fileName);
-          
-          if (imageId) {
-            finalResult = imageId; // Store database ID instead of data URL
-            console.log(`✅ Image uploaded to database: ${imageId}`);
-          } else {
-            throw new Error('Upload returned no image ID');
-          }
-        } catch (error) {
-          console.error('💥 Database upload failed:', error);
-          setUploadError(`Database upload failed: ${error.message}`);
-          // Continue with local storage as fallback
-          console.log('📋 Falling back to local storage');
-        }
-      }
-      
-      // Apply the result (either database ID or data URL)
-      if (uploadType === 'portrait') {
-        setEditingCharacter(prev => ({ ...prev, portrait: finalResult }));
-      } else if (uploadType === 'sprite') {
-        setEditingCharacter(prev => ({ ...prev, sprite: finalResult }));
-      } else if (uploadType === 'terrain') {
-        setCustomTerrainSprites(prev => ({
-          ...prev,
-          [selectedTerrain]: finalResult
-        }));
-      } else if (uploadType === 'scene') {
-        setSceneImage(finalResult);
-      }
-      
-    } catch (error) {
-      console.error('💥 Upload processing failed:', error);
-      setUploadError(`Upload failed: ${error.message}`);
-      throw error;
-    }
-  };
-
-  // Define which panels are available to everyone vs DM-only
-  const sharedTabs = ['actions', 'conditions', 'spells', 'inventory']; // Everyone gets these
-  const dmOnlyTabs = ['initiative']; // Only DM gets these
+  // Define available tabs
+  const sharedTabs = ['actions', 'conditions', 'spells', 'inventory'];
+  const dmOnlyTabs = ['initiative'];
   const availableSharedTabs = [
     { id: 'actions', name: 'Actions', icon: '⚔️' },
     { id: 'conditions', name: 'Conditions', icon: '🎭' },
@@ -711,9 +785,12 @@ const App = () => {
           onToggleNames={() => setShowNames(!showNames)}
           isDatabaseConnected={isDatabaseConnected}
           isDatabaseLoading={isDatabaseLoading}
+          // Add grid size control back to header
+          gridSize={gridSize}
+          onGridSizeChange={setGridSize}
         />
 
-        {/* Database Debug Panel - Only in DM mode or when there are issues */}
+        {/* Database Debug Panel */}
         {(isDMMode || connectionStatus === 'error' || showDatabaseDebug) && (
           <div className="mb-4">
             <DatabaseDebugPanel useDatabase={databaseHook} />
@@ -734,7 +811,7 @@ const App = () => {
           </div>
         )}
 
-        {/* DM Control Panel - Only visible in DM mode */}
+        {/* DM Control Panel */}
         {isDMMode && (
           <div className="mb-4 transition-all duration-300 ease-in-out">
             <DMControlPanel
@@ -793,7 +870,7 @@ const App = () => {
           {/* Right Panel - Character Tools and Chat/Log */}
           <div className={`transition-all duration-300 ease-in-out ${isDMMode ? 'xl:col-span-2' : 'xl:col-span-2'} space-y-4`}>
             
-            {/* Character Control Panel - Everyone Gets This */}
+            {/* Character Control Panel */}
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
               <div className="p-4 border-b border-slate-700">
                 <h3 className="text-lg font-bold text-slate-100 flex items-center">
@@ -808,7 +885,6 @@ const App = () => {
                       No character selected
                     </span>
                   )}
-                  {/* Database status indicator */}
                   {isDatabaseConnected && (
                     <span className="ml-3 text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
                       ☁️ Cloud Sync
@@ -843,7 +919,7 @@ const App = () => {
               </div>
             </div>
 
-            {/* DM Tools Panel - DM Only */}
+            {/* DM Tools Panel */}
             {isDMMode && availableDMTabs.length > 0 && (
               <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
                 <div className="p-4 border-b border-slate-700">
@@ -882,7 +958,7 @@ const App = () => {
               </div>
             )}
 
-            {/* Chat and Log Panel - Always Visible */}
+            {/* Chat and Log Panel */}
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
               {/* Tab Navigation */}
               <div className="border-b border-slate-700">
@@ -960,18 +1036,9 @@ const App = () => {
             character={editingCharacter}
             characters={characters}
             isDMMode={isDMMode}
-            onSave={(savedCharacter) => {
-              handleCharacterUpdate(savedCharacter);
-              // Update current actor if it's the same character
-              if (currentActor && currentActor.id === savedCharacter.id) {
-                setCurrentActor(savedCharacter);
-              }
-              setShowCharacterModal(false);
-              setEditingCharacter(null);
-            }}
+            onSave={handleCharacterSave}
             onDelete={(characterId) => {
               handleCharacterDelete(characterId);
-              // Clear current actor if it was deleted
               if (currentActor && currentActor.id === characterId) {
                 setCurrentActor(null);
                 setSelectedCharacterForActions(null);
